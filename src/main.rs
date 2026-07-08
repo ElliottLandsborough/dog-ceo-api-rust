@@ -290,6 +290,81 @@ async fn list_sub_breeds_endpoint(
     }
 }
 
+async fn random_sub_breed_endpoint(
+    Path(breed): Path<String>,
+    State(state): State<AppState>,
+) -> Result<Json<RandomImageResponse>, (StatusCode, Json<NotFoundWithCodeResponse>)> {
+    let breed = breed.to_lowercase();
+
+    match state.breeds.get(&breed) {
+        Some(sub_breeds) if !sub_breeds.is_empty() => {
+            let mut rng = rand::thread_rng();
+            let sub_breed = sub_breeds.choose(&mut rng).cloned().unwrap_or_default();
+
+            Ok(Json(RandomImageResponse {
+                message: sub_breed,
+                status: "success",
+            }))
+        }
+        Some(_) => Err((
+            StatusCode::NOT_FOUND,
+            Json(NotFoundWithCodeResponse {
+                status: "error",
+                message: "Breed not found (no sub breeds exist for this main breed)",
+                code: 404,
+            }),
+        )),
+        None => Err((
+            StatusCode::NOT_FOUND,
+            Json(NotFoundWithCodeResponse {
+                status: "error",
+                message: "Breed not found (main breed does not exist)",
+                code: 404,
+            }),
+        )),
+    }
+}
+
+async fn random_sub_breeds_endpoint(
+    Path((breed, count)): Path<(String, String)>,
+    State(state): State<AppState>,
+) -> Result<Json<RandomImagesResponse>, (StatusCode, Json<NotFoundWithCodeResponse>)> {
+    let breed = breed.to_lowercase();
+    let count = parse_count_or_default_one(&count);
+
+    match state.breeds.get(&breed) {
+        Some(sub_breeds) if !sub_breeds.is_empty() => {
+            let capped = count.min(sub_breeds.len());
+            let mut rng = rand::thread_rng();
+            let selected = sub_breeds
+                .choose_multiple(&mut rng, capped)
+                .cloned()
+                .collect();
+
+            Ok(Json(RandomImagesResponse {
+                message: selected,
+                status: "success",
+            }))
+        }
+        Some(_) => Err((
+            StatusCode::NOT_FOUND,
+            Json(NotFoundWithCodeResponse {
+                status: "error",
+                message: "Breed not found (no sub breeds exist for this main breed)",
+                code: 404,
+            }),
+        )),
+        None => Err((
+            StatusCode::NOT_FOUND,
+            Json(NotFoundWithCodeResponse {
+                status: "error",
+                message: "Breed not found (main breed does not exist)",
+                code: 404,
+            }),
+        )),
+    }
+}
+
 async fn sub_breed_images_endpoint(
     Path((breed, sub_breed)): Path<(String, String)>,
     State(state): State<AppState>,
@@ -500,6 +575,11 @@ async fn main() {
         .route("/breeds/image/random", get(random_image))
         .route("/breeds/list/all", get(list_all_breeds))
         .route("/breed/{breed}/list", get(list_sub_breeds_endpoint))
+        .route("/breed/{breed}/list/random", get(random_sub_breed_endpoint))
+        .route(
+            "/breed/{breed}/list/random/{count}",
+            get(random_sub_breeds_endpoint),
+        )
         .route(
             "/breed/{breed}/{sub_breed}/images",
             get(sub_breed_images_endpoint),
