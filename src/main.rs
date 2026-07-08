@@ -48,12 +48,6 @@ struct BreedListResponse {
 }
 
 #[derive(Serialize)]
-struct ErrorResponse {
-    message: String,
-    status: &'static str,
-}
-
-#[derive(Serialize)]
 struct NotFoundWithCodeResponse {
     status: &'static str,
     message: &'static str,
@@ -109,7 +103,7 @@ async fn list_all_breeds(State(state): State<AppState>) -> Json<BreedListRespons
 async fn breed_images_endpoint(
     Path(breed): Path<String>,
     State(state): State<AppState>,
-) -> Result<Json<RandomImagesResponse>, (StatusCode, Json<ErrorResponse>)> {
+) -> Result<Json<RandomImagesResponse>, (StatusCode, Json<NotFoundWithCodeResponse>)> {
     let breed = breed.to_lowercase();
 
     match state.breed_images.get(&breed) {
@@ -119,9 +113,10 @@ async fn breed_images_endpoint(
         })),
         _ => Err((
             StatusCode::NOT_FOUND,
-            Json(ErrorResponse {
-                message: format!("Breed not found: {breed}"),
+            Json(NotFoundWithCodeResponse {
                 status: "error",
+                message: "Breed not found (main breed does not exist)",
+                code: 404,
             }),
         )),
     }
@@ -130,7 +125,7 @@ async fn breed_images_endpoint(
 async fn random_breed_image_endpoint(
     Path(breed): Path<String>,
     State(state): State<AppState>,
-) -> Result<Json<RandomImageResponse>, (StatusCode, Json<ErrorResponse>)> {
+) -> Result<Json<RandomImageResponse>, (StatusCode, Json<NotFoundWithCodeResponse>)> {
     let breed = breed.to_lowercase();
 
     match state.breed_images.get(&breed) {
@@ -145,9 +140,10 @@ async fn random_breed_image_endpoint(
         }
         _ => Err((
             StatusCode::NOT_FOUND,
-            Json(ErrorResponse {
-                message: format!("Breed not found: {breed}"),
+            Json(NotFoundWithCodeResponse {
                 status: "error",
+                message: "Breed not found (main breed does not exist)",
+                code: 404,
             }),
         )),
     }
@@ -156,7 +152,7 @@ async fn random_breed_image_endpoint(
 async fn random_breed_images_endpoint(
     Path((breed, count)): Path<(String, usize)>,
     State(state): State<AppState>,
-) -> Result<Json<RandomImagesResponse>, (StatusCode, Json<ErrorResponse>)> {
+) -> Result<Json<RandomImagesResponse>, (StatusCode, Json<NotFoundWithCodeResponse>)> {
     let breed = breed.to_lowercase();
 
     match state.breed_images.get(&breed) {
@@ -175,9 +171,10 @@ async fn random_breed_images_endpoint(
         }
         _ => Err((
             StatusCode::NOT_FOUND,
-            Json(ErrorResponse {
-                message: format!("Breed not found: {breed}"),
+            Json(NotFoundWithCodeResponse {
                 status: "error",
+                message: "Breed not found (main breed does not exist)",
+                code: 404,
             }),
         )),
     }
@@ -208,7 +205,7 @@ async fn list_sub_breeds_endpoint(
 async fn sub_breed_images_endpoint(
     Path((breed, sub_breed)): Path<(String, String)>,
     State(state): State<AppState>,
-) -> Result<Json<RandomImagesResponse>, (StatusCode, Json<ErrorResponse>)> {
+) -> Result<Json<RandomImagesResponse>, (StatusCode, Json<NotFoundWithCodeResponse>)> {
     let key = format!("{}/{}", breed.to_lowercase(), sub_breed.to_lowercase());
 
     match state.sub_breed_images.get(&key) {
@@ -218,9 +215,10 @@ async fn sub_breed_images_endpoint(
         })),
         _ => Err((
             StatusCode::NOT_FOUND,
-            Json(ErrorResponse {
-                message: format!("Sub-breed not found: {breed}/{sub_breed}"),
+            Json(NotFoundWithCodeResponse {
                 status: "error",
+                message: "Breed not found (sub breed does not exist)",
+                code: 404,
             }),
         )),
     }
@@ -229,7 +227,7 @@ async fn sub_breed_images_endpoint(
 async fn random_sub_breed_image_endpoint(
     Path((breed, sub_breed)): Path<(String, String)>,
     State(state): State<AppState>,
-) -> Result<Json<RandomImageResponse>, (StatusCode, Json<ErrorResponse>)> {
+) -> Result<Json<RandomImageResponse>, (StatusCode, Json<NotFoundWithCodeResponse>)> {
     let key = format!("{}/{}", breed.to_lowercase(), sub_breed.to_lowercase());
 
     match state.sub_breed_images.get(&key) {
@@ -244,9 +242,10 @@ async fn random_sub_breed_image_endpoint(
         }
         _ => Err((
             StatusCode::NOT_FOUND,
-            Json(ErrorResponse {
-                message: format!("Sub-breed not found: {breed}/{sub_breed}"),
+            Json(NotFoundWithCodeResponse {
                 status: "error",
+                message: "Breed not found (sub breed does not exist)",
+                code: 404,
             }),
         )),
     }
@@ -255,7 +254,7 @@ async fn random_sub_breed_image_endpoint(
 async fn random_sub_breed_images_endpoint(
     Path((breed, sub_breed, count)): Path<(String, String, usize)>,
     State(state): State<AppState>,
-) -> Result<Json<RandomImagesResponse>, (StatusCode, Json<ErrorResponse>)> {
+) -> Result<Json<RandomImagesResponse>, (StatusCode, Json<NotFoundWithCodeResponse>)> {
     let key = format!("{}/{}", breed.to_lowercase(), sub_breed.to_lowercase());
 
     match state.sub_breed_images.get(&key) {
@@ -274,9 +273,10 @@ async fn random_sub_breed_images_endpoint(
         }
         _ => Err((
             StatusCode::NOT_FOUND,
-            Json(ErrorResponse {
-                message: format!("Sub-breed not found: {breed}/{sub_breed}"),
+            Json(NotFoundWithCodeResponse {
                 status: "error",
+                message: "Breed not found (sub breed does not exist)",
+                code: 404,
             }),
         )),
     }
