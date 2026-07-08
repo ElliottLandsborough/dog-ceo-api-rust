@@ -330,7 +330,7 @@ async fn random_sub_breeds_endpoint(
     State(state): State<AppState>,
 ) -> Result<Json<RandomImagesResponse>, (StatusCode, Json<NotFoundWithCodeResponse>)> {
     let breed = breed.to_lowercase();
-    let count = parse_count_or_default_one(&count);
+    let count = parse_sub_breed_random_count(&count);
 
     match state.breeds.get(&breed) {
         Some(sub_breeds) if !sub_breeds.is_empty() => {
@@ -454,6 +454,14 @@ fn to_public_url(path: &PathBuf) -> String {
 fn parse_count_or_default_one(value: &str) -> usize {
     match value.parse::<isize>() {
         Ok(parsed) if parsed > 0 => parsed as usize,
+        _ => 1,
+    }
+}
+
+fn parse_sub_breed_random_count(value: &str) -> usize {
+    match value.parse::<isize>() {
+        Ok(parsed) if parsed > 0 => parsed as usize,
+        Ok(parsed) if parsed < 0 => 10,
         _ => 1,
     }
 }
