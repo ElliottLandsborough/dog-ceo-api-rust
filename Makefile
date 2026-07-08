@@ -12,7 +12,7 @@ help:
 	@echo "  make build         - cargo build"
 	@echo "  make build-release - cargo build --release"
 	@echo "  make target-linux  - install rust target x86_64-unknown-linux-musl (static)"
-	@echo "  make build-linux   - cargo build --release --target x86_64-unknown-linux-musl (static)"
+	@echo "  make build-linux   - cargo build --release --target x86_64-unknown-linux-musl (static, linker=rust-lld)"
 	@echo "  make run           - cargo run"
 	@echo "  make run-prod      - run ./run-prod.sh"
 	@echo "  make parity        - run parity checks against an already running local server"
@@ -35,6 +35,7 @@ target-linux:
 	$(RUSTUP) target add x86_64-unknown-linux-musl
 
 build-linux:
+	CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=rust-lld \
 	$(CARGO) build --release --target x86_64-unknown-linux-musl
 
 run:
