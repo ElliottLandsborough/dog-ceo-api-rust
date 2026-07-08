@@ -1,8 +1,9 @@
 SHELL := /bin/bash
 
 CARGO ?= $(HOME)/.cargo/bin/cargo
+RUSTUP ?= $(HOME)/.cargo/bin/rustup
 
-.PHONY: help check test build build-release build-x86_64 target-x86_64 run run-prod parity parity-start clean
+.PHONY: help check test build build-release build-linux target-linux run run-prod parity parity-start clean
 
 help:
 	@echo "Available targets:"
@@ -10,8 +11,8 @@ help:
 	@echo "  make test          - cargo test"
 	@echo "  make build         - cargo build"
 	@echo "  make build-release - cargo build --release"
-	@echo "  make target-x86_64 - install rust target x86_64-apple-darwin"
-	@echo "  make build-x86_64  - cargo build --release --target x86_64-apple-darwin"
+	@echo "  make target-linux  - install rust target x86_64-unknown-linux-musl (static)"
+	@echo "  make build-linux   - cargo build --release --target x86_64-unknown-linux-musl (static)"
 	@echo "  make run           - cargo run"
 	@echo "  make run-prod      - run ./run-prod.sh"
 	@echo "  make parity        - run parity checks against an already running local server"
@@ -30,11 +31,11 @@ build:
 build-release:
 	$(CARGO) build --release
 
-target-x86_64:
-	$(CARGO) target add x86_64-apple-darwin
+target-linux:
+	$(RUSTUP) target add x86_64-unknown-linux-musl
 
-build-x86_64:
-	$(CARGO) build --release --target x86_64-apple-darwin
+build-linux:
+	$(CARGO) build --release --target x86_64-unknown-linux-musl
 
 run:
 	$(CARGO) run
