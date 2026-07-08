@@ -1,6 +1,6 @@
 use axum::{
     Json, Router,
-    extract::State,
+    extract::{Path, State},
     http::StatusCode,
     routing::get,
 };
@@ -25,6 +25,7 @@ fn parse_manifest(bytes: &[u8]) -> Vec<PathBuf> {
 struct AppState {
     urls: Arc<Vec<String>>,
     breeds: Arc<BTreeMap<String, Vec<String>>>,
+    breed_images: Arc<BTreeMap<String, Vec<String>>>,
 }
 
 #[derive(Serialize)]
@@ -34,8 +35,20 @@ struct RandomImageResponse {
 }
 
 #[derive(Serialize)]
+struct RandomImagesResponse {
+    message: Vec<String>,
+    status: &'static str,
+}
+
+#[derive(Serialize)]
 struct BreedListResponse {
     message: BTreeMap<String, Vec<String>>,
+    status: &'static str,
+}
+
+#[derive(Serialize)]
+struct ErrorResponse {
+    message: String,
     status: &'static str,
 }
 
@@ -60,11 +73,106 @@ async fn random_image(
     }))
 }
 
+async fn random_images(
+    Path(count): Path<usize>,
+    State(state): State<AppState>,
+) -> Json<RandomImagesResponse> {
+    let capped = count.min(50);
+    let mut rng = rand::thread_rng();
+    let urls = state
+        .urls
+        .choose_multiple(&mut rng, capped)
+        .cloned()
+        .collect();
+
+    Json(RandomImagesResponse {
+        message: urls,
+        status: "success",
+    })
+}
+
 async fn list_all_breeds(State(state): State<AppState>) -> Json<BreedListResponse> {
     Json(BreedListResponse {
         message: (*state.breeds).clone(),
         status: "success",
     })
+}
+
+async fn breed_images_endpoint(
+    Path(breed): Path<String>,
+    State(state): State<AppState>,
+) -> Result<Json<RandomImagesResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let breed = breed.to_lowercase();
+
+    match state.breed_images.get(&breed) {
+        Some(images) if !images.is_empty() => Ok(Json(RandomImagesResponse {
+            message: images.clone(),
+            status: "success",
+        })),
+        _ => Err((
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                message: format!("Breed not found: {breed}"),
+                status: "error",
+            }),
+        )),
+    }
+}
+
+async fn random_breed_image_endpoint(
+    Path(breed): Path<String>,
+    State(state): State<AppState>,
+) -> Result<Json<RandomImageResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let breed = breed.to_lowercase();
+
+    match state.breed_images.get(&breed) {
+        Some(images) if !images.is_empty() => {
+            let mut rng = rand::thread_rng();
+            let image = images.choose(&mut rng).cloned().unwrap_or_default();
+
+            Ok(Json(RandomImageResponse {
+                message: image,
+                status: "success",
+            }))
+        }
+        _ => Err((
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                message: format!("Breed not found: {breed}"),
+                status: "error",
+            }),
+        )),
+    }
+}
+
+async fn random_breed_images_endpoint(
+    Path((breed, count)): Path<(String, usize)>,
+    State(state): State<AppState>,
+) -> Result<Json<RandomImagesResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let breed = breed.to_lowercase();
+
+    match state.breed_images.get(&breed) {
+        Some(images) if !images.is_empty() => {
+            let capped = count.min(50);
+            let mut rng = rand::thread_rng();
+            let selected = images
+                .choose_multiple(&mut rng, capped)
+                .cloned()
+                .collect();
+
+            Ok(Json(RandomImagesResponse {
+                message: selected,
+                status: "success",
+            }))
+        }
+        _ => Err((
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                message: format!("Breed not found: {breed}"),
+                status: "error",
+            }),
+        )),
+    }
 }
 
 fn to_public_url(path: &PathBuf) -> String {
@@ -101,6 +209,32 @@ fn build_breed_map(paths: &[PathBuf]) -> BTreeMap<String, Vec<String>> {
         .collect()
 }
 
+fn build_breed_image_map(paths: &[PathBuf]) -> BTreeMap<String, Vec<String>> {
+    let mut out: BTreeMap<String, Vec<String>> = BTreeMap::new();
+
+    for path in paths {
+        let path_str = path.to_string_lossy();
+        let trimmed = path_str.strip_prefix("dog-api-images/").unwrap_or(&path_str);
+        let Some(folder) = trimmed.split('/').next() else {
+            continue;
+        };
+
+        if folder.is_empty() {
+            continue;
+        }
+
+        let breed = folder
+            .split_once('-')
+            .map(|(breed, _)| breed)
+            .unwrap_or(folder)
+            .to_string();
+
+        out.entry(breed).or_default().push(to_public_url(path));
+    }
+
+    out
+}
+
 #[cfg(unix)]
 fn bytes_to_path(bytes: &[u8]) -> PathBuf {
     use std::ffi::OsStr;
@@ -118,17 +252,26 @@ async fn main() {
     let manifest_paths = parse_manifest(MANIFEST_BYTES);
     let urls: Vec<String> = manifest_paths.iter().map(to_public_url).collect();
     let breeds = build_breed_map(&manifest_paths);
+    let breed_images = build_breed_image_map(&manifest_paths);
     println!("Loaded {} manifest entries", urls.len());
     println!("Loaded {} breeds", breeds.len());
 
     let state = AppState {
         urls: Arc::new(urls),
         breeds: Arc::new(breeds),
+        breed_images: Arc::new(breed_images),
     };
 
     let app = Router::new()
+        .route("/breeds/image/random/{count}", get(random_images))
         .route("/breeds/image/random", get(random_image))
         .route("/breeds/list/all", get(list_all_breeds))
+        .route("/breed/{breed}/images", get(breed_images_endpoint))
+        .route("/breed/{breed}/images/random", get(random_breed_image_endpoint))
+        .route(
+            "/breed/{breed}/images/random/{count}",
+            get(random_breed_images_endpoint),
+        )
         .with_state(state);
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000")
