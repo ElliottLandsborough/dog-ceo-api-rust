@@ -2,6 +2,9 @@ SHELL := /bin/bash
 
 CARGO ?= $(HOME)/.cargo/bin/cargo
 RUSTUP ?= $(HOME)/.cargo/bin/rustup
+TARGET_CPU ?= haswell
+HOST_CC ?= /usr/bin/cc
+HOST_CXX ?= /usr/bin/c++
 
 .PHONY: help check test build build-release build-linux target-linux run run-prod parity parity-start clean
 
@@ -12,7 +15,7 @@ help:
 	@echo "  make build         - cargo build"
 	@echo "  make build-release - cargo build --release"
 	@echo "  make target-linux  - install rust target x86_64-unknown-linux-musl (static)"
-	@echo "  make build-linux   - cargo build --release --target x86_64-unknown-linux-musl (static, linker=rust-lld)"
+	@echo "  make build-linux   - cargo build --release --target x86_64-unknown-linux-musl (static, linker=rust-lld, cpu=$(TARGET_CPU))"
 	@echo "  make run           - cargo run"
 	@echo "  make run-prod      - run ./run-prod.sh"
 	@echo "  make parity        - run parity checks against an already running local server"
@@ -35,7 +38,11 @@ target-linux:
 	$(RUSTUP) target add x86_64-unknown-linux-musl
 
 build-linux:
+	CC="$(HOST_CC)" CXX="$(HOST_CXX)" \
+	CARGO_TARGET_AARCH64_APPLE_DARWIN_LINKER="$(HOST_CC)" \
+	CARGO_TARGET_X86_64_APPLE_DARWIN_LINKER="$(HOST_CC)" \
 	CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=rust-lld \
+	CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS="-C target-cpu=$(TARGET_CPU)" \
 	$(CARGO) build --release --target x86_64-unknown-linux-musl
 
 run:
