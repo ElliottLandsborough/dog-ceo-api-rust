@@ -445,6 +445,72 @@ async fn random_sub_breed_images_endpoint(
     }
 }
 
+async fn breed_info_endpoint(
+    Path(breed): Path<String>,
+    State(state): State<AppState>,
+) -> Result<Json<RandomImageResponse>, (StatusCode, Json<NotFoundWithCodeResponse>)> {
+    let breed = breed.to_lowercase();
+
+    if state.breeds.contains_key(&breed) {
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(NotFoundWithCodeResponse {
+                status: "error",
+                message: "Breed not found (No info file for this breed exists)",
+                code: 404,
+            }),
+        ));
+    }
+
+    Err((
+        StatusCode::NOT_FOUND,
+        Json(NotFoundWithCodeResponse {
+            status: "error",
+            message: "Breed not found (main breed does not exist)",
+            code: 404,
+        }),
+    ))
+}
+
+async fn sub_breed_info_endpoint(
+    Path((breed, sub_breed)): Path<(String, String)>,
+    State(state): State<AppState>,
+) -> Result<Json<RandomImageResponse>, (StatusCode, Json<NotFoundWithCodeResponse>)> {
+    let breed = breed.to_lowercase();
+    let sub_breed = sub_breed.to_lowercase();
+
+    let Some(sub_breeds) = state.breeds.get(&breed) else {
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(NotFoundWithCodeResponse {
+                status: "error",
+                message: "Breed not found (main breed does not exist)",
+                code: 404,
+            }),
+        ));
+    };
+
+    if !sub_breeds.iter().any(|s| s == &sub_breed) {
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(NotFoundWithCodeResponse {
+                status: "error",
+                message: "Breed not found (sub breed does not exist)",
+                code: 404,
+            }),
+        ));
+    }
+
+    Err((
+        StatusCode::NOT_FOUND,
+        Json(NotFoundWithCodeResponse {
+            status: "error",
+            message: "Breed not found (No info file for this breed exists)",
+            code: 404,
+        }),
+    ))
+}
+
 fn to_public_url(path: &PathBuf) -> String {
     let path_str = path.to_string_lossy();
     let trimmed = path_str.strip_prefix("dog-api-images/").unwrap_or(&path_str);
@@ -606,6 +672,8 @@ async fn main() {
             "/breed/{breed}/images/random/{count}",
             get(random_breed_images_endpoint),
         )
+        .route("/breed/{breed}/{sub_breed}", get(sub_breed_info_endpoint))
+        .route("/breed/{breed}", get(breed_info_endpoint))
         .with_state(state);
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000")
