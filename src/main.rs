@@ -26,6 +26,7 @@ struct AppState {
     urls: Arc<Vec<String>>,
     breeds: Arc<BTreeMap<String, Vec<String>>>,
     breed_images: Arc<BTreeMap<String, Vec<String>>>,
+    sub_breed_images: Arc<BTreeMap<String, Vec<String>>>,
 }
 
 #[derive(Serialize)]
@@ -50,6 +51,13 @@ struct BreedListResponse {
 struct ErrorResponse {
     message: String,
     status: &'static str,
+}
+
+#[derive(Serialize)]
+struct NotFoundWithCodeResponse {
+    status: &'static str,
+    message: &'static str,
+    code: u16,
 }
 
 async fn random_image(
@@ -175,6 +183,105 @@ async fn random_breed_images_endpoint(
     }
 }
 
+async fn list_sub_breeds_endpoint(
+    Path(breed): Path<String>,
+    State(state): State<AppState>,
+) -> Result<Json<RandomImagesResponse>, (StatusCode, Json<NotFoundWithCodeResponse>)> {
+    let breed = breed.to_lowercase();
+
+    match state.breeds.get(&breed) {
+        Some(sub_breeds) => Ok(Json(RandomImagesResponse {
+            message: sub_breeds.clone(),
+            status: "success",
+        })),
+        None => Err((
+            StatusCode::NOT_FOUND,
+            Json(NotFoundWithCodeResponse {
+                status: "error",
+                message: "Breed not found (main breed does not exist)",
+                code: 404,
+            }),
+        )),
+    }
+}
+
+async fn sub_breed_images_endpoint(
+    Path((breed, sub_breed)): Path<(String, String)>,
+    State(state): State<AppState>,
+) -> Result<Json<RandomImagesResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let key = format!("{}/{}", breed.to_lowercase(), sub_breed.to_lowercase());
+
+    match state.sub_breed_images.get(&key) {
+        Some(images) if !images.is_empty() => Ok(Json(RandomImagesResponse {
+            message: images.clone(),
+            status: "success",
+        })),
+        _ => Err((
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                message: format!("Sub-breed not found: {breed}/{sub_breed}"),
+                status: "error",
+            }),
+        )),
+    }
+}
+
+async fn random_sub_breed_image_endpoint(
+    Path((breed, sub_breed)): Path<(String, String)>,
+    State(state): State<AppState>,
+) -> Result<Json<RandomImageResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let key = format!("{}/{}", breed.to_lowercase(), sub_breed.to_lowercase());
+
+    match state.sub_breed_images.get(&key) {
+        Some(images) if !images.is_empty() => {
+            let mut rng = rand::thread_rng();
+            let image = images.choose(&mut rng).cloned().unwrap_or_default();
+
+            Ok(Json(RandomImageResponse {
+                message: image,
+                status: "success",
+            }))
+        }
+        _ => Err((
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                message: format!("Sub-breed not found: {breed}/{sub_breed}"),
+                status: "error",
+            }),
+        )),
+    }
+}
+
+async fn random_sub_breed_images_endpoint(
+    Path((breed, sub_breed, count)): Path<(String, String, usize)>,
+    State(state): State<AppState>,
+) -> Result<Json<RandomImagesResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let key = format!("{}/{}", breed.to_lowercase(), sub_breed.to_lowercase());
+
+    match state.sub_breed_images.get(&key) {
+        Some(images) if !images.is_empty() => {
+            let capped = count.min(50);
+            let mut rng = rand::thread_rng();
+            let selected = images
+                .choose_multiple(&mut rng, capped)
+                .cloned()
+                .collect();
+
+            Ok(Json(RandomImagesResponse {
+                message: selected,
+                status: "success",
+            }))
+        }
+        _ => Err((
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                message: format!("Sub-breed not found: {breed}/{sub_breed}"),
+                status: "error",
+            }),
+        )),
+    }
+}
+
 fn to_public_url(path: &PathBuf) -> String {
     let path_str = path.to_string_lossy();
     let trimmed = path_str.strip_prefix("dog-api-images/").unwrap_or(&path_str);
@@ -235,6 +342,25 @@ fn build_breed_image_map(paths: &[PathBuf]) -> BTreeMap<String, Vec<String>> {
     out
 }
 
+fn build_sub_breed_image_map(paths: &[PathBuf]) -> BTreeMap<String, Vec<String>> {
+    let mut out: BTreeMap<String, Vec<String>> = BTreeMap::new();
+
+    for path in paths {
+        let path_str = path.to_string_lossy();
+        let trimmed = path_str.strip_prefix("dog-api-images/").unwrap_or(&path_str);
+        let Some(folder) = trimmed.split('/').next() else {
+            continue;
+        };
+
+        if let Some((breed, sub_breed)) = folder.split_once('-') {
+            let key = format!("{}/{}", breed.to_lowercase(), sub_breed.to_lowercase());
+            out.entry(key).or_default().push(to_public_url(path));
+        }
+    }
+
+    out
+}
+
 #[cfg(unix)]
 fn bytes_to_path(bytes: &[u8]) -> PathBuf {
     use std::ffi::OsStr;
@@ -253,6 +379,7 @@ async fn main() {
     let urls: Vec<String> = manifest_paths.iter().map(to_public_url).collect();
     let breeds = build_breed_map(&manifest_paths);
     let breed_images = build_breed_image_map(&manifest_paths);
+    let sub_breed_images = build_sub_breed_image_map(&manifest_paths);
     println!("Loaded {} manifest entries", urls.len());
     println!("Loaded {} breeds", breeds.len());
 
@@ -260,12 +387,26 @@ async fn main() {
         urls: Arc::new(urls),
         breeds: Arc::new(breeds),
         breed_images: Arc::new(breed_images),
+        sub_breed_images: Arc::new(sub_breed_images),
     };
 
     let app = Router::new()
         .route("/breeds/image/random/{count}", get(random_images))
         .route("/breeds/image/random", get(random_image))
         .route("/breeds/list/all", get(list_all_breeds))
+        .route("/breed/{breed}/list", get(list_sub_breeds_endpoint))
+        .route(
+            "/breed/{breed}/{sub_breed}/images",
+            get(sub_breed_images_endpoint),
+        )
+        .route(
+            "/breed/{breed}/{sub_breed}/images/random",
+            get(random_sub_breed_image_endpoint),
+        )
+        .route(
+            "/breed/{breed}/{sub_breed}/images/random/{count}",
+            get(random_sub_breed_images_endpoint),
+        )
         .route("/breed/{breed}/images", get(breed_images_endpoint))
         .route("/breed/{breed}/images/random", get(random_breed_image_endpoint))
         .route(
