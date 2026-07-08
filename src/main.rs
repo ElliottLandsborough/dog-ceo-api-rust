@@ -4,6 +4,7 @@ use axum::{
     http::StatusCode,
     routing::get,
 };
+use rand::prelude::IteratorRandom;
 use rand::seq::SliceRandom;
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet};
@@ -25,6 +26,7 @@ fn parse_manifest(bytes: &[u8]) -> Vec<PathBuf> {
 struct AppState {
     urls: Arc<Vec<String>>,
     breeds: Arc<BTreeMap<String, Vec<String>>>,
+    main_breeds: Arc<Vec<String>>,
     breed_images: Arc<BTreeMap<String, Vec<String>>>,
     sub_breed_images: Arc<BTreeMap<String, Vec<String>>>,
 }
@@ -96,6 +98,92 @@ async fn random_images(
 async fn list_all_breeds(State(state): State<AppState>) -> Json<BreedListResponse> {
     Json(BreedListResponse {
         message: (*state.breeds).clone(),
+        status: "success",
+    })
+}
+
+async fn list_main_breeds(State(state): State<AppState>) -> Json<RandomImagesResponse> {
+    Json(RandomImagesResponse {
+        message: (*state.main_breeds).clone(),
+        status: "success",
+    })
+}
+
+async fn random_main_breed(
+    State(state): State<AppState>,
+) -> Result<Json<RandomImageResponse>, (StatusCode, Json<RandomImageResponse>)> {
+    let mut rng = rand::thread_rng();
+
+    let Some(breed) = state.main_breeds.choose(&mut rng).cloned() else {
+        return Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(RandomImageResponse {
+                message: "No breeds available".to_string(),
+                status: "error",
+            }),
+        ));
+    };
+
+    Ok(Json(RandomImageResponse {
+        message: breed,
+        status: "success",
+    }))
+}
+
+async fn random_main_breeds(
+    Path(count): Path<String>,
+    State(state): State<AppState>,
+) -> Json<RandomImagesResponse> {
+    let count = parse_count_or_default_one(&count);
+    let capped = count.min(state.main_breeds.len());
+
+    let mut rng = rand::thread_rng();
+    let selected = state
+        .main_breeds
+        .choose_multiple(&mut rng, capped)
+        .cloned()
+        .collect();
+
+    Json(RandomImagesResponse {
+        message: selected,
+        status: "success",
+    })
+}
+
+async fn random_all_breeds(State(state): State<AppState>) -> Json<BreedListResponse> {
+    let mut rng = rand::thread_rng();
+    let mut out = BTreeMap::new();
+
+    if let Some((breed, sub_breeds)) = state.breeds.iter().choose(&mut rng) {
+        out.insert(breed.clone(), sub_breeds.clone());
+    }
+
+    Json(BreedListResponse {
+        message: out,
+        status: "success",
+    })
+}
+
+async fn random_all_breeds_count(
+    Path(count): Path<String>,
+    State(state): State<AppState>,
+) -> Json<BreedListResponse> {
+    let count = parse_count_or_default_one(&count);
+    let capped = count.min(state.breeds.len());
+
+    let mut rng = rand::thread_rng();
+    let selected: Vec<(String, Vec<String>)> = state
+        .breeds
+        .iter()
+        .choose_multiple(&mut rng, capped)
+        .into_iter()
+        .map(|(breed, sub_breeds)| (breed.clone(), sub_breeds.clone()))
+        .collect();
+
+    let message = selected.into_iter().collect();
+
+    Json(BreedListResponse {
+        message,
         status: "success",
     })
 }
@@ -288,6 +376,13 @@ fn to_public_url(path: &PathBuf) -> String {
     format!("https://images.dog.ceo/breeds/{trimmed}")
 }
 
+fn parse_count_or_default_one(value: &str) -> usize {
+    match value.parse::<isize>() {
+        Ok(parsed) if parsed > 0 => parsed as usize,
+        _ => 1,
+    }
+}
+
 fn build_breed_map(paths: &[PathBuf]) -> BTreeMap<String, Vec<String>> {
     let mut temp: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
 
@@ -378,6 +473,7 @@ async fn main() {
     let manifest_paths = parse_manifest(MANIFEST_BYTES);
     let urls: Vec<String> = manifest_paths.iter().map(to_public_url).collect();
     let breeds = build_breed_map(&manifest_paths);
+    let main_breeds: Vec<String> = breeds.keys().cloned().collect();
     let breed_images = build_breed_image_map(&manifest_paths);
     let sub_breed_images = build_sub_breed_image_map(&manifest_paths);
     println!("Loaded {} manifest entries", urls.len());
@@ -386,11 +482,20 @@ async fn main() {
     let state = AppState {
         urls: Arc::new(urls),
         breeds: Arc::new(breeds),
+        main_breeds: Arc::new(main_breeds),
         breed_images: Arc::new(breed_images),
         sub_breed_images: Arc::new(sub_breed_images),
     };
 
     let app = Router::new()
+        .route("/breeds/list", get(list_main_breeds))
+        .route("/breeds/list/random", get(random_main_breed))
+        .route("/breeds/list/random/{count}", get(random_main_breeds))
+        .route("/breeds/list/all/random", get(random_all_breeds))
+        .route(
+            "/breeds/list/all/random/{count}",
+            get(random_all_breeds_count),
+        )
         .route("/breeds/image/random/{count}", get(random_images))
         .route("/breeds/image/random", get(random_image))
         .route("/breeds/list/all", get(list_all_breeds))
