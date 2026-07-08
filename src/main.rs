@@ -13,6 +13,8 @@ use std::sync::Arc;
 
 // Embedded at compile time. File is no longer needed at runtime.
 const MANIFEST_BYTES: &[u8] = include_bytes!("../manifest.nul");
+const MAX_BREED_SEGMENT_LEN: usize = 64;
+const MAX_COUNT_INPUT_LEN: usize = 32;
 
 fn parse_manifest(bytes: &[u8]) -> Vec<PathBuf> {
     bytes
@@ -78,9 +80,10 @@ async fn random_image(
 }
 
 async fn random_images(
-    Path(count): Path<usize>,
+    Path(count): Path<String>,
     State(state): State<AppState>,
 ) -> Json<RandomImagesResponse> {
+    let count = parse_count_or_default_one(&count);
     let capped = count.min(50);
     let mut rng = rand::thread_rng();
     let urls = state
@@ -192,7 +195,9 @@ async fn breed_images_endpoint(
     Path(breed): Path<String>,
     State(state): State<AppState>,
 ) -> Result<Json<RandomImagesResponse>, (StatusCode, Json<NotFoundWithCodeResponse>)> {
-    let breed = breed.to_lowercase();
+    let Some(breed) = normalize_breed_segment(&breed) else {
+        return Err(main_breed_not_found());
+    };
 
     match state.breed_images.get(&breed) {
         Some(images) if !images.is_empty() => Ok(Json(RandomImagesResponse {
@@ -214,7 +219,9 @@ async fn random_breed_image_endpoint(
     Path(breed): Path<String>,
     State(state): State<AppState>,
 ) -> Result<Json<RandomImageResponse>, (StatusCode, Json<NotFoundWithCodeResponse>)> {
-    let breed = breed.to_lowercase();
+    let Some(breed) = normalize_breed_segment(&breed) else {
+        return Err(main_breed_not_found());
+    };
 
     match state.breed_images.get(&breed) {
         Some(images) if !images.is_empty() => {
@@ -238,10 +245,13 @@ async fn random_breed_image_endpoint(
 }
 
 async fn random_breed_images_endpoint(
-    Path((breed, count)): Path<(String, usize)>,
+    Path((breed, count)): Path<(String, String)>,
     State(state): State<AppState>,
 ) -> Result<Json<RandomImagesResponse>, (StatusCode, Json<NotFoundWithCodeResponse>)> {
-    let breed = breed.to_lowercase();
+    let Some(breed) = normalize_breed_segment(&breed) else {
+        return Err(main_breed_not_found());
+    };
+    let count = parse_count_or_default_one(&count);
 
     match state.breed_images.get(&breed) {
         Some(images) if !images.is_empty() => {
@@ -272,7 +282,9 @@ async fn list_sub_breeds_endpoint(
     Path(breed): Path<String>,
     State(state): State<AppState>,
 ) -> Result<Json<RandomImagesResponse>, (StatusCode, Json<NotFoundWithCodeResponse>)> {
-    let breed = breed.to_lowercase();
+    let Some(breed) = normalize_breed_segment(&breed) else {
+        return Err(main_breed_not_found());
+    };
 
     match state.breeds.get(&breed) {
         Some(sub_breeds) => Ok(Json(RandomImagesResponse {
@@ -294,7 +306,9 @@ async fn random_sub_breed_endpoint(
     Path(breed): Path<String>,
     State(state): State<AppState>,
 ) -> Result<Json<RandomImageResponse>, (StatusCode, Json<NotFoundWithCodeResponse>)> {
-    let breed = breed.to_lowercase();
+    let Some(breed) = normalize_breed_segment(&breed) else {
+        return Err(main_breed_not_found());
+    };
 
     match state.breeds.get(&breed) {
         Some(sub_breeds) if !sub_breeds.is_empty() => {
@@ -329,7 +343,9 @@ async fn random_sub_breeds_endpoint(
     Path((breed, count)): Path<(String, String)>,
     State(state): State<AppState>,
 ) -> Result<Json<RandomImagesResponse>, (StatusCode, Json<NotFoundWithCodeResponse>)> {
-    let breed = breed.to_lowercase();
+    let Some(breed) = normalize_breed_segment(&breed) else {
+        return Err(main_breed_not_found());
+    };
     let count = parse_sub_breed_random_count(&count);
 
     match state.breeds.get(&breed) {
@@ -369,7 +385,13 @@ async fn sub_breed_images_endpoint(
     Path((breed, sub_breed)): Path<(String, String)>,
     State(state): State<AppState>,
 ) -> Result<Json<RandomImagesResponse>, (StatusCode, Json<NotFoundWithCodeResponse>)> {
-    let key = format!("{}/{}", breed.to_lowercase(), sub_breed.to_lowercase());
+    let Some(breed) = normalize_breed_segment(&breed) else {
+        return Err(main_breed_not_found());
+    };
+    let Some(sub_breed) = normalize_breed_segment(&sub_breed) else {
+        return Err(sub_breed_not_found());
+    };
+    let key = format!("{breed}/{sub_breed}");
 
     match state.sub_breed_images.get(&key) {
         Some(images) if !images.is_empty() => Ok(Json(RandomImagesResponse {
@@ -391,7 +413,13 @@ async fn random_sub_breed_image_endpoint(
     Path((breed, sub_breed)): Path<(String, String)>,
     State(state): State<AppState>,
 ) -> Result<Json<RandomImageResponse>, (StatusCode, Json<NotFoundWithCodeResponse>)> {
-    let key = format!("{}/{}", breed.to_lowercase(), sub_breed.to_lowercase());
+    let Some(breed) = normalize_breed_segment(&breed) else {
+        return Err(main_breed_not_found());
+    };
+    let Some(sub_breed) = normalize_breed_segment(&sub_breed) else {
+        return Err(sub_breed_not_found());
+    };
+    let key = format!("{breed}/{sub_breed}");
 
     match state.sub_breed_images.get(&key) {
         Some(images) if !images.is_empty() => {
@@ -415,10 +443,17 @@ async fn random_sub_breed_image_endpoint(
 }
 
 async fn random_sub_breed_images_endpoint(
-    Path((breed, sub_breed, count)): Path<(String, String, usize)>,
+    Path((breed, sub_breed, count)): Path<(String, String, String)>,
     State(state): State<AppState>,
 ) -> Result<Json<RandomImagesResponse>, (StatusCode, Json<NotFoundWithCodeResponse>)> {
-    let key = format!("{}/{}", breed.to_lowercase(), sub_breed.to_lowercase());
+    let Some(breed) = normalize_breed_segment(&breed) else {
+        return Err(main_breed_not_found());
+    };
+    let Some(sub_breed) = normalize_breed_segment(&sub_breed) else {
+        return Err(sub_breed_not_found());
+    };
+    let count = parse_count_or_default_one(&count);
+    let key = format!("{breed}/{sub_breed}");
 
     match state.sub_breed_images.get(&key) {
         Some(images) if !images.is_empty() => {
@@ -449,7 +484,9 @@ async fn breed_info_endpoint(
     Path(breed): Path<String>,
     State(state): State<AppState>,
 ) -> Result<Json<RandomImageResponse>, (StatusCode, Json<NotFoundWithCodeResponse>)> {
-    let breed = breed.to_lowercase();
+    let Some(breed) = normalize_breed_segment(&breed) else {
+        return Err(main_breed_not_found());
+    };
 
     if state.breeds.contains_key(&breed) {
         return Err((
@@ -462,43 +499,26 @@ async fn breed_info_endpoint(
         ));
     }
 
-    Err((
-        StatusCode::NOT_FOUND,
-        Json(NotFoundWithCodeResponse {
-            status: "error",
-            message: "Breed not found (main breed does not exist)",
-            code: 404,
-        }),
-    ))
+    Err(main_breed_not_found())
 }
 
 async fn sub_breed_info_endpoint(
     Path((breed, sub_breed)): Path<(String, String)>,
     State(state): State<AppState>,
 ) -> Result<Json<RandomImageResponse>, (StatusCode, Json<NotFoundWithCodeResponse>)> {
-    let breed = breed.to_lowercase();
-    let sub_breed = sub_breed.to_lowercase();
+    let Some(breed) = normalize_breed_segment(&breed) else {
+        return Err(main_breed_not_found());
+    };
+    let Some(sub_breed) = normalize_breed_segment(&sub_breed) else {
+        return Err(sub_breed_not_found());
+    };
 
     let Some(sub_breeds) = state.breeds.get(&breed) else {
-        return Err((
-            StatusCode::NOT_FOUND,
-            Json(NotFoundWithCodeResponse {
-                status: "error",
-                message: "Breed not found (main breed does not exist)",
-                code: 404,
-            }),
-        ));
+        return Err(main_breed_not_found());
     };
 
     if !sub_breeds.iter().any(|s| s == &sub_breed) {
-        return Err((
-            StatusCode::NOT_FOUND,
-            Json(NotFoundWithCodeResponse {
-                status: "error",
-                message: "Breed not found (sub breed does not exist)",
-                code: 404,
-            }),
-        ));
+        return Err(sub_breed_not_found());
     }
 
     Err((
@@ -518,6 +538,10 @@ fn to_public_url(path: &PathBuf) -> String {
 }
 
 fn parse_count_or_default_one(value: &str) -> usize {
+    if value.len() > MAX_COUNT_INPUT_LEN {
+        return 1;
+    }
+
     match value.parse::<isize>() {
         Ok(parsed) if parsed > 0 => parsed as usize,
         _ => 1,
@@ -525,10 +549,115 @@ fn parse_count_or_default_one(value: &str) -> usize {
 }
 
 fn parse_sub_breed_random_count(value: &str) -> usize {
+    if value.len() > MAX_COUNT_INPUT_LEN {
+        return 1;
+    }
+
     match value.parse::<isize>() {
         Ok(parsed) if parsed > 0 => parsed as usize,
         Ok(parsed) if parsed < 0 => 10,
         _ => 1,
+    }
+}
+
+fn normalize_breed_segment(input: &str) -> Option<String> {
+    if input.is_empty() || input.len() > MAX_BREED_SEGMENT_LEN || !input.is_ascii() {
+        return None;
+    }
+
+    let lowered = input.to_ascii_lowercase();
+
+    if lowered.bytes().all(|b| b.is_ascii_lowercase()) {
+        Some(lowered)
+    } else {
+        None
+    }
+}
+
+fn main_breed_not_found() -> (StatusCode, Json<NotFoundWithCodeResponse>) {
+    (
+        StatusCode::NOT_FOUND,
+        Json(NotFoundWithCodeResponse {
+            status: "error",
+            message: "Breed not found (main breed does not exist)",
+            code: 404,
+        }),
+    )
+}
+
+fn sub_breed_not_found() -> (StatusCode, Json<NotFoundWithCodeResponse>) {
+    (
+        StatusCode::NOT_FOUND,
+        Json(NotFoundWithCodeResponse {
+            status: "error",
+            message: "Breed not found (sub breed does not exist)",
+            code: 404,
+        }),
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_count_or_default_one_behaves_as_expected() {
+        assert_eq!(parse_count_or_default_one("1"), 1);
+        assert_eq!(parse_count_or_default_one("7"), 7);
+        assert_eq!(parse_count_or_default_one("0"), 1);
+        assert_eq!(parse_count_or_default_one("-5"), 1);
+        assert_eq!(parse_count_or_default_one("abc"), 1);
+        assert_eq!(parse_count_or_default_one("1e10"), 1);
+
+        let huge = "9".repeat(500);
+        assert_eq!(parse_count_or_default_one(&huge), 1);
+    }
+
+    #[test]
+    fn parse_sub_breed_random_count_behaves_as_expected() {
+        assert_eq!(parse_sub_breed_random_count("1"), 1);
+        assert_eq!(parse_sub_breed_random_count("12"), 12);
+        assert_eq!(parse_sub_breed_random_count("0"), 1);
+        assert_eq!(parse_sub_breed_random_count("-1"), 10);
+        assert_eq!(parse_sub_breed_random_count("-999"), 10);
+        assert_eq!(parse_sub_breed_random_count("abc"), 1);
+
+        let huge = "9".repeat(500);
+        assert_eq!(parse_sub_breed_random_count(&huge), 1);
+    }
+
+    #[test]
+    fn normalize_breed_segment_accepts_and_normalizes_ascii_letters() {
+        assert_eq!(normalize_breed_segment("hound"), Some("hound".to_string()));
+        assert_eq!(normalize_breed_segment("HOUND"), Some("hound".to_string()));
+        assert_eq!(normalize_breed_segment("German"), Some("german".to_string()));
+    }
+
+    #[test]
+    fn normalize_breed_segment_rejects_invalid_inputs() {
+        assert_eq!(normalize_breed_segment(""), None);
+        assert_eq!(normalize_breed_segment("hound123"), None);
+        assert_eq!(normalize_breed_segment("hound-afghan"), None);
+        assert_eq!(normalize_breed_segment("hound/afghan"), None);
+        assert_eq!(normalize_breed_segment("💥"), None);
+
+        let too_long = "a".repeat(MAX_BREED_SEGMENT_LEN + 1);
+        assert_eq!(normalize_breed_segment(&too_long), None);
+    }
+
+    #[test]
+    fn not_found_helpers_return_expected_payloads() {
+        let (main_status, Json(main_body)) = main_breed_not_found();
+        assert_eq!(main_status, StatusCode::NOT_FOUND);
+        assert_eq!(main_body.status, "error");
+        assert_eq!(main_body.message, "Breed not found (main breed does not exist)");
+        assert_eq!(main_body.code, 404);
+
+        let (sub_status, Json(sub_body)) = sub_breed_not_found();
+        assert_eq!(sub_status, StatusCode::NOT_FOUND);
+        assert_eq!(sub_body.status, "error");
+        assert_eq!(sub_body.message, "Breed not found (sub breed does not exist)");
+        assert_eq!(sub_body.code, 404);
     }
 }
 
