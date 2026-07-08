@@ -8,6 +8,7 @@ use rand::prelude::IteratorRandom;
 use rand::seq::SliceRandom;
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet};
+use std::env;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -15,6 +16,7 @@ use std::sync::Arc;
 const MANIFEST_BYTES: &[u8] = include_bytes!("../manifest.nul");
 const MAX_BREED_SEGMENT_LEN: usize = 64;
 const MAX_COUNT_INPUT_LEN: usize = 32;
+const WORKER_THREADS_ENV: &str = "DOG_API_WORKER_THREADS";
 
 fn parse_manifest(bytes: &[u8]) -> Vec<PathBuf> {
     bytes
@@ -175,20 +177,30 @@ async fn random_all_breeds_count(
     let capped = count.min(state.breeds.len());
 
     let mut rng = rand::thread_rng();
-    let selected: Vec<(String, Vec<String>)> = state
-        .breeds
-        .iter()
-        .choose_multiple(&mut rng, capped)
-        .into_iter()
-        .map(|(breed, sub_breeds)| (breed.clone(), sub_breeds.clone()))
-        .collect();
-
-    let message = selected.into_iter().collect();
+    let mut message = BTreeMap::new();
+    for (breed, sub_breeds) in state.breeds.iter().choose_multiple(&mut rng, capped) {
+        message.insert(breed.clone(), sub_breeds.clone());
+    }
 
     Json(BreedListResponse {
         message,
         status: "success",
     })
+}
+
+fn parse_worker_threads(raw: Option<&str>, fallback: usize) -> usize {
+    match raw {
+        Some(value) => value.parse::<usize>().ok().filter(|v| *v > 0).unwrap_or(fallback),
+        None => fallback,
+    }
+}
+
+fn configured_worker_threads() -> usize {
+    let fallback = std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(1);
+
+    parse_worker_threads(env::var(WORKER_THREADS_ENV).ok().as_deref(), fallback)
 }
 
 async fn breed_images_endpoint(
@@ -659,6 +671,21 @@ mod tests {
         assert_eq!(sub_body.message, "Breed not found (sub breed does not exist)");
         assert_eq!(sub_body.code, 404);
     }
+
+    #[test]
+    fn parse_worker_threads_uses_fallback_for_invalid_values() {
+        assert_eq!(parse_worker_threads(None, 4), 4);
+        assert_eq!(parse_worker_threads(Some(""), 4), 4);
+        assert_eq!(parse_worker_threads(Some("0"), 4), 4);
+        assert_eq!(parse_worker_threads(Some("-2"), 4), 4);
+        assert_eq!(parse_worker_threads(Some("abc"), 4), 4);
+    }
+
+    #[test]
+    fn parse_worker_threads_accepts_positive_values() {
+        assert_eq!(parse_worker_threads(Some("1"), 4), 1);
+        assert_eq!(parse_worker_threads(Some("8"), 4), 8);
+    }
 }
 
 fn build_breed_map(paths: &[PathBuf]) -> BTreeMap<String, Vec<String>> {
@@ -746,8 +773,7 @@ fn bytes_to_path(bytes: &[u8]) -> PathBuf {
     PathBuf::from(String::from_utf8_lossy(bytes).into_owned())
 }
 
-#[tokio::main]
-async fn main() {
+async fn run_server() {
     let manifest_paths = parse_manifest(MANIFEST_BYTES);
     let urls: Vec<String> = manifest_paths.iter().map(to_public_url).collect();
     let breeds = build_breed_map(&manifest_paths);
@@ -813,4 +839,19 @@ async fn main() {
     axum::serve(listener, app)
         .await
         .expect("server encountered an error");
+}
+
+fn main() {
+    let worker_threads = configured_worker_threads();
+    println!(
+        "Starting runtime with {worker_threads} worker thread(s) (set {WORKER_THREADS_ENV} to override)"
+    );
+
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(worker_threads)
+        .enable_all()
+        .build()
+        .expect("failed to build tokio runtime");
+
+    runtime.block_on(run_server());
 }
