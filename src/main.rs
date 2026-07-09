@@ -1,7 +1,9 @@
 use axum::{
     Json, Router,
-    extract::{Path, State},
-    http::StatusCode,
+    extract::{Path, Request, State},
+    http::{StatusCode, header::CACHE_CONTROL},
+    middleware::{self, Next},
+    response::Response,
     routing::get,
 };
 use rand::prelude::IteratorRandom;
@@ -201,6 +203,26 @@ fn configured_worker_threads() -> usize {
         .unwrap_or(1);
 
     parse_worker_threads(env::var(WORKER_THREADS_ENV).ok().as_deref(), fallback)
+}
+
+async fn cache_control_middleware(req: Request, next: Next) -> Response {
+    let path = req.uri().path().to_string();
+    let mut response = next.run(req).await;
+
+    let cache_value = if path.contains("/random") {
+        "no-store"
+    } else if path.starts_with("/breed/") || path.starts_with("/breeds/") {
+        "public, max-age=300, s-maxage=600, stale-while-revalidate=30"
+    } else {
+        "no-store"
+    };
+
+    response.headers_mut().insert(
+        CACHE_CONTROL,
+        cache_value.parse().expect("valid cache-control header"),
+    );
+
+    response
 }
 
 async fn breed_images_endpoint(
@@ -829,6 +851,7 @@ async fn run_server() {
         )
         .route("/breed/{breed}/{sub_breed}", get(sub_breed_info_endpoint))
         .route("/breed/{breed}", get(breed_info_endpoint))
+        .layer(middleware::from_fn(cache_control_middleware))
         .with_state(state);
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000")
