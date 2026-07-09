@@ -48,7 +48,7 @@ struct AppState {
     breeds: Arc<BTreeMap<String, Vec<String>>>,
     main_breeds: Arc<Vec<String>>,
     breed_images: Arc<BTreeMap<String, Vec<String>>>,
-    sub_breed_images: Arc<BTreeMap<String, Vec<String>>>,
+    sub_breed_images: Arc<BTreeMap<String, BTreeMap<String, Vec<String>>>>,
 }
 
 #[derive(Serialize)]
@@ -241,12 +241,16 @@ fn configured_worker_threads() -> usize {
 }
 
 async fn cache_control_middleware(req: Request, next: Next) -> Response {
-    let path = req.uri().path().to_string();
+    let is_random = req.uri().path().contains("/random");
+    let is_breed_or_breeds = {
+        let path = req.uri().path();
+        path.starts_with("/breed/") || path.starts_with("/breeds/")
+    };
     let mut response = next.run(req).await;
 
-    let cache_value = if path.contains("/random") {
+    let cache_value = if is_random {
         "no-store"
-    } else if path.starts_with("/breed/") || path.starts_with("/breeds/") {
+    } else if is_breed_or_breeds {
         "public, max-age=300, s-maxage=600, stale-while-revalidate=30"
     } else {
         "no-store"
@@ -457,22 +461,18 @@ async fn sub_breed_images_endpoint(
     let Some(sub_breed) = normalize_breed_segment(&sub_breed) else {
         return Err(sub_breed_not_found());
     };
-    let key = format!("{breed}/{sub_breed}");
+    let maybe_images = state
+        .sub_breed_images
+        .get(&breed)
+        .and_then(|subs| subs.get(&sub_breed));
 
-    match state.sub_breed_images.get(&key) {
+    match maybe_images {
         Some(images) if !images.is_empty() => Ok(Json(RandomImagesRefResponse {
             message: images.as_slice(),
             status: "success",
         })
         .into_response()),
-        _ => Err((
-            StatusCode::NOT_FOUND,
-            Json(NotFoundWithCodeResponse {
-                status: "error",
-                message: "Breed not found (sub breed does not exist)",
-                code: 404,
-            }),
-        )),
+        _ => Err(sub_breed_not_found()),
     }
 }
 
@@ -486,9 +486,12 @@ async fn random_sub_breed_image_endpoint(
     let Some(sub_breed) = normalize_breed_segment(&sub_breed) else {
         return Err(sub_breed_not_found());
     };
-    let key = format!("{breed}/{sub_breed}");
+    let maybe_images = state
+        .sub_breed_images
+        .get(&breed)
+        .and_then(|subs| subs.get(&sub_breed));
 
-    match state.sub_breed_images.get(&key) {
+    match maybe_images {
         Some(images) if !images.is_empty() => {
             let selected = with_fast_rng(|rng| images.choose(rng).map(String::as_str));
             let image = selected.unwrap_or_default();
@@ -521,9 +524,12 @@ async fn random_sub_breed_images_endpoint(
         return Err(sub_breed_not_found());
     };
     let count = parse_count_or_default_one(&count);
-    let key = format!("{breed}/{sub_breed}");
+    let maybe_images = state
+        .sub_breed_images
+        .get(&breed)
+        .and_then(|subs| subs.get(&sub_breed));
 
-    match state.sub_breed_images.get(&key) {
+    match maybe_images {
         Some(images) if !images.is_empty() => {
             let capped = count.min(50);
             let selected = with_fast_rng(|rng| images.choose_multiple(rng, capped).cloned().collect());
@@ -794,8 +800,10 @@ fn build_breed_image_map(paths: &[PathBuf]) -> BTreeMap<String, Vec<String>> {
     out
 }
 
-fn build_sub_breed_image_map(paths: &[PathBuf]) -> BTreeMap<String, Vec<String>> {
-    let mut out: BTreeMap<String, Vec<String>> = BTreeMap::new();
+fn build_sub_breed_image_map(
+    paths: &[PathBuf],
+) -> BTreeMap<String, BTreeMap<String, Vec<String>>> {
+    let mut out: BTreeMap<String, BTreeMap<String, Vec<String>>> = BTreeMap::new();
 
     for path in paths {
         let path_str = path.to_string_lossy();
@@ -805,8 +813,13 @@ fn build_sub_breed_image_map(paths: &[PathBuf]) -> BTreeMap<String, Vec<String>>
         };
 
         if let Some((breed, sub_breed)) = folder.split_once('-') {
-            let key = format!("{}/{}", breed.to_lowercase(), sub_breed.to_lowercase());
-            out.entry(key).or_default().push(to_public_url(path));
+            let breed = breed.to_lowercase();
+            let sub_breed = sub_breed.to_lowercase();
+            out.entry(breed)
+                .or_default()
+                .entry(sub_breed)
+                .or_default()
+                .push(to_public_url(path));
         }
     }
 
