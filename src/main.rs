@@ -66,8 +66,8 @@ struct RandomImageRefResponse<'a> {
 }
 
 #[derive(Serialize)]
-struct RandomImagesResponse {
-    message: Vec<String>,
+struct RandomImagesPickedRefResponse<'a> {
+    message: Vec<&'a str>,
     status: &'static str,
 }
 
@@ -121,15 +121,22 @@ async fn random_image(
 async fn random_images(
     Path(count): Path<String>,
     State(state): State<AppState>,
-) -> Json<RandomImagesResponse> {
+) -> Response {
     let count = parse_count_or_default_one(&count);
     let capped = count.min(50);
-    let urls = with_fast_rng(|rng| state.urls.choose_multiple(rng, capped).cloned().collect());
+    let urls = with_fast_rng(|rng| {
+        state
+            .urls
+            .choose_multiple(rng, capped)
+            .map(String::as_str)
+            .collect::<Vec<&str>>()
+    });
 
-    Json(RandomImagesResponse {
+    Json(RandomImagesPickedRefResponse {
         message: urls,
         status: "success",
     })
+    .into_response()
 }
 
 async fn list_all_breeds(State(state): State<AppState>) -> Response {
@@ -173,17 +180,23 @@ async fn random_main_breed(
 async fn random_main_breeds(
     Path(count): Path<String>,
     State(state): State<AppState>,
-) -> Json<RandomImagesResponse> {
+) -> Response {
     let count = parse_count_or_default_one(&count);
     let capped = count.min(state.main_breeds.len());
 
-    let selected =
-        with_fast_rng(|rng| state.main_breeds.choose_multiple(rng, capped).cloned().collect());
+    let selected = with_fast_rng(|rng| {
+        state
+            .main_breeds
+            .choose_multiple(rng, capped)
+            .map(String::as_str)
+            .collect::<Vec<&str>>()
+    });
 
-    Json(RandomImagesResponse {
+    Json(RandomImagesPickedRefResponse {
         message: selected,
         status: "success",
     })
+    .into_response()
 }
 
 async fn random_all_breeds(State(state): State<AppState>) -> Json<BreedListResponse> {
@@ -324,7 +337,7 @@ async fn random_breed_image_endpoint(
 async fn random_breed_images_endpoint(
     Path((breed, count)): Path<(String, String)>,
     State(state): State<AppState>,
-) -> Result<Json<RandomImagesResponse>, (StatusCode, Json<NotFoundWithCodeResponse>)> {
+) -> Result<Response, (StatusCode, Json<NotFoundWithCodeResponse>)> {
     let Some(breed) = normalize_breed_segment(&breed) else {
         return Err(main_breed_not_found());
     };
@@ -333,12 +346,18 @@ async fn random_breed_images_endpoint(
     match state.breed_images.get(breed.as_ref()) {
         Some(images) if !images.is_empty() => {
             let capped = count.min(50);
-            let selected = with_fast_rng(|rng| images.choose_multiple(rng, capped).cloned().collect());
+            let selected = with_fast_rng(|rng| {
+                images
+                    .choose_multiple(rng, capped)
+                    .map(String::as_str)
+                    .collect::<Vec<&str>>()
+            });
 
-            Ok(Json(RandomImagesResponse {
+            Ok(Json(RandomImagesPickedRefResponse {
                 message: selected,
                 status: "success",
-            }))
+            })
+            .into_response())
         }
         _ => Err((
             StatusCode::NOT_FOUND,
@@ -417,7 +436,7 @@ async fn random_sub_breed_endpoint(
 async fn random_sub_breeds_endpoint(
     Path((breed, count)): Path<(String, String)>,
     State(state): State<AppState>,
-) -> Result<Json<RandomImagesResponse>, (StatusCode, Json<NotFoundWithCodeResponse>)> {
+) -> Result<Response, (StatusCode, Json<NotFoundWithCodeResponse>)> {
     let Some(breed) = normalize_breed_segment(&breed) else {
         return Err(main_breed_not_found());
     };
@@ -426,13 +445,18 @@ async fn random_sub_breeds_endpoint(
     match state.breeds_lookup.get(breed.as_ref()) {
         Some(sub_breeds) if !sub_breeds.is_empty() => {
             let capped = count.min(sub_breeds.len());
-            let selected =
-                with_fast_rng(|rng| sub_breeds.choose_multiple(rng, capped).cloned().collect());
+            let selected = with_fast_rng(|rng| {
+                sub_breeds
+                    .choose_multiple(rng, capped)
+                    .map(String::as_str)
+                    .collect::<Vec<&str>>()
+            });
 
-            Ok(Json(RandomImagesResponse {
+            Ok(Json(RandomImagesPickedRefResponse {
                 message: selected,
                 status: "success",
-            }))
+            })
+            .into_response())
         }
         Some(_) => Err((
             StatusCode::NOT_FOUND,
@@ -518,7 +542,7 @@ async fn random_sub_breed_image_endpoint(
 async fn random_sub_breed_images_endpoint(
     Path((breed, sub_breed, count)): Path<(String, String, String)>,
     State(state): State<AppState>,
-) -> Result<Json<RandomImagesResponse>, (StatusCode, Json<NotFoundWithCodeResponse>)> {
+) -> Result<Response, (StatusCode, Json<NotFoundWithCodeResponse>)> {
     let Some(breed) = normalize_breed_segment(&breed) else {
         return Err(main_breed_not_found());
     };
@@ -534,12 +558,18 @@ async fn random_sub_breed_images_endpoint(
     match maybe_images {
         Some(images) if !images.is_empty() => {
             let capped = count.min(50);
-            let selected = with_fast_rng(|rng| images.choose_multiple(rng, capped).cloned().collect());
+            let selected = with_fast_rng(|rng| {
+                images
+                    .choose_multiple(rng, capped)
+                    .map(String::as_str)
+                    .collect::<Vec<&str>>()
+            });
 
-            Ok(Json(RandomImagesResponse {
+            Ok(Json(RandomImagesPickedRefResponse {
                 message: selected,
                 status: "success",
-            }))
+            })
+            .into_response())
         }
         _ => Err((
             StatusCode::NOT_FOUND,
