@@ -12,7 +12,8 @@ use rand::seq::SliceRandom;
 use rand::SeedableRng;
 use serde::Serialize;
 use std::cell::RefCell;
-use std::collections::{BTreeMap, BTreeSet};
+use std::borrow::Cow;
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::env;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -46,9 +47,10 @@ fn parse_manifest(bytes: &[u8]) -> Vec<PathBuf> {
 struct AppState {
     urls: Arc<Vec<String>>,
     breeds: Arc<BTreeMap<String, Vec<String>>>,
+    breeds_lookup: Arc<HashMap<String, Vec<String>>>,
     main_breeds: Arc<Vec<String>>,
-    breed_images: Arc<BTreeMap<String, Vec<String>>>,
-    sub_breed_images: Arc<BTreeMap<String, BTreeMap<String, Vec<String>>>>,
+    breed_images: Arc<HashMap<String, Vec<String>>>,
+    sub_breed_images: Arc<HashMap<String, HashMap<String, Vec<String>>>>,
 }
 
 #[derive(Serialize)]
@@ -187,7 +189,7 @@ async fn random_main_breeds(
 async fn random_all_breeds(State(state): State<AppState>) -> Json<BreedListResponse> {
     let maybe_selected = with_fast_rng(|rng| {
         state
-            .breeds
+            .breeds_lookup
             .iter()
             .choose(rng)
             .map(|(breed, sub_breeds)| (breed.clone(), sub_breeds.clone()))
@@ -210,11 +212,11 @@ async fn random_all_breeds_count(
     State(state): State<AppState>,
 ) -> Json<BreedListResponse> {
     let count = parse_count_or_default_one(&count);
-    let capped = count.min(state.breeds.len());
+    let capped = count.min(state.breeds_lookup.len());
 
     let mut message = BTreeMap::new();
     with_fast_rng(|rng| {
-        for (breed, sub_breeds) in state.breeds.iter().choose_multiple(rng, capped) {
+        for (breed, sub_breeds) in state.breeds_lookup.iter().choose_multiple(rng, capped) {
             message.insert(breed.clone(), sub_breeds.clone());
         }
     });
@@ -272,7 +274,7 @@ async fn breed_images_endpoint(
         return Err(main_breed_not_found());
     };
 
-    match state.breed_images.get(&breed) {
+    match state.breed_images.get(breed.as_ref()) {
         Some(images) if !images.is_empty() => Ok(Json(RandomImagesRefResponse {
             message: images.as_slice(),
             status: "success",
@@ -297,7 +299,7 @@ async fn random_breed_image_endpoint(
         return Err(main_breed_not_found());
     };
 
-    match state.breed_images.get(&breed) {
+    match state.breed_images.get(breed.as_ref()) {
         Some(images) if !images.is_empty() => {
             let selected = with_fast_rng(|rng| images.choose(rng).map(String::as_str));
             let image = selected.unwrap_or_default();
@@ -328,7 +330,7 @@ async fn random_breed_images_endpoint(
     };
     let count = parse_count_or_default_one(&count);
 
-    match state.breed_images.get(&breed) {
+    match state.breed_images.get(breed.as_ref()) {
         Some(images) if !images.is_empty() => {
             let capped = count.min(50);
             let selected = with_fast_rng(|rng| images.choose_multiple(rng, capped).cloned().collect());
@@ -357,7 +359,7 @@ async fn list_sub_breeds_endpoint(
         return Err(main_breed_not_found());
     };
 
-    match state.breeds.get(&breed) {
+    match state.breeds_lookup.get(breed.as_ref()) {
         Some(sub_breeds) => Ok(Json(RandomImagesRefResponse {
             message: sub_breeds.as_slice(),
             status: "success",
@@ -382,7 +384,7 @@ async fn random_sub_breed_endpoint(
         return Err(main_breed_not_found());
     };
 
-    match state.breeds.get(&breed) {
+    match state.breeds_lookup.get(breed.as_ref()) {
         Some(sub_breeds) if !sub_breeds.is_empty() => {
             let selected = with_fast_rng(|rng| sub_breeds.choose(rng).map(String::as_str));
             let sub_breed = selected.unwrap_or_default();
@@ -421,7 +423,7 @@ async fn random_sub_breeds_endpoint(
     };
     let count = parse_sub_breed_random_count(&count);
 
-    match state.breeds.get(&breed) {
+    match state.breeds_lookup.get(breed.as_ref()) {
         Some(sub_breeds) if !sub_breeds.is_empty() => {
             let capped = count.min(sub_breeds.len());
             let selected =
@@ -463,8 +465,8 @@ async fn sub_breed_images_endpoint(
     };
     let maybe_images = state
         .sub_breed_images
-        .get(&breed)
-        .and_then(|subs| subs.get(&sub_breed));
+        .get(breed.as_ref())
+        .and_then(|subs| subs.get(sub_breed.as_ref()));
 
     match maybe_images {
         Some(images) if !images.is_empty() => Ok(Json(RandomImagesRefResponse {
@@ -488,8 +490,8 @@ async fn random_sub_breed_image_endpoint(
     };
     let maybe_images = state
         .sub_breed_images
-        .get(&breed)
-        .and_then(|subs| subs.get(&sub_breed));
+        .get(breed.as_ref())
+        .and_then(|subs| subs.get(sub_breed.as_ref()));
 
     match maybe_images {
         Some(images) if !images.is_empty() => {
@@ -526,8 +528,8 @@ async fn random_sub_breed_images_endpoint(
     let count = parse_count_or_default_one(&count);
     let maybe_images = state
         .sub_breed_images
-        .get(&breed)
-        .and_then(|subs| subs.get(&sub_breed));
+        .get(breed.as_ref())
+        .and_then(|subs| subs.get(sub_breed.as_ref()));
 
     match maybe_images {
         Some(images) if !images.is_empty() => {
@@ -558,7 +560,7 @@ async fn breed_info_endpoint(
         return Err(main_breed_not_found());
     };
 
-    if state.breeds.contains_key(&breed) {
+    if state.breeds_lookup.contains_key(breed.as_ref()) {
         return Err((
             StatusCode::NOT_FOUND,
             Json(NotFoundWithCodeResponse {
@@ -583,11 +585,11 @@ async fn sub_breed_info_endpoint(
         return Err(sub_breed_not_found());
     };
 
-    let Some(sub_breeds) = state.breeds.get(&breed) else {
+    let Some(sub_breeds) = state.breeds_lookup.get(breed.as_ref()) else {
         return Err(main_breed_not_found());
     };
 
-    if !sub_breeds.iter().any(|s| s == &sub_breed) {
+    if !sub_breeds.iter().any(|s| s == sub_breed.as_ref()) {
         return Err(sub_breed_not_found());
     }
 
@@ -630,17 +632,19 @@ fn parse_sub_breed_random_count(value: &str) -> usize {
     }
 }
 
-fn normalize_breed_segment(input: &str) -> Option<String> {
+fn normalize_breed_segment(input: &str) -> Option<Cow<'_, str>> {
     if input.is_empty() || input.len() > MAX_BREED_SEGMENT_LEN || !input.is_ascii() {
         return None;
     }
 
-    let lowered = input.to_ascii_lowercase();
+    if !input.bytes().all(|b| b.is_ascii_alphabetic()) {
+        return None;
+    }
 
-    if lowered.bytes().all(|b| b.is_ascii_lowercase()) {
-        Some(lowered)
+    if input.bytes().all(|b| b.is_ascii_lowercase()) {
+        Some(Cow::Borrowed(input))
     } else {
-        None
+        Some(Cow::Owned(input.to_ascii_lowercase()))
     }
 }
 
@@ -698,9 +702,9 @@ mod tests {
 
     #[test]
     fn normalize_breed_segment_accepts_and_normalizes_ascii_letters() {
-        assert_eq!(normalize_breed_segment("hound"), Some("hound".to_string()));
-        assert_eq!(normalize_breed_segment("HOUND"), Some("hound".to_string()));
-        assert_eq!(normalize_breed_segment("German"), Some("german".to_string()));
+        assert_eq!(normalize_breed_segment("hound").as_deref(), Some("hound"));
+        assert_eq!(normalize_breed_segment("HOUND").as_deref(), Some("hound"));
+        assert_eq!(normalize_breed_segment("German").as_deref(), Some("german"));
     }
 
     #[test]
@@ -774,8 +778,8 @@ fn build_breed_map(paths: &[PathBuf]) -> BTreeMap<String, Vec<String>> {
         .collect()
 }
 
-fn build_breed_image_map(paths: &[PathBuf]) -> BTreeMap<String, Vec<String>> {
-    let mut out: BTreeMap<String, Vec<String>> = BTreeMap::new();
+fn build_breed_image_map(paths: &[PathBuf]) -> HashMap<String, Vec<String>> {
+    let mut out: HashMap<String, Vec<String>> = HashMap::new();
 
     for path in paths {
         let path_str = path.to_string_lossy();
@@ -802,8 +806,8 @@ fn build_breed_image_map(paths: &[PathBuf]) -> BTreeMap<String, Vec<String>> {
 
 fn build_sub_breed_image_map(
     paths: &[PathBuf],
-) -> BTreeMap<String, BTreeMap<String, Vec<String>>> {
-    let mut out: BTreeMap<String, BTreeMap<String, Vec<String>>> = BTreeMap::new();
+) -> HashMap<String, HashMap<String, Vec<String>>> {
+    let mut out: HashMap<String, HashMap<String, Vec<String>>> = HashMap::new();
 
     for path in paths {
         let path_str = path.to_string_lossy();
@@ -842,6 +846,10 @@ async fn run_server() {
     let manifest_paths = parse_manifest(MANIFEST_BYTES);
     let urls: Vec<String> = manifest_paths.iter().map(to_public_url).collect();
     let breeds = build_breed_map(&manifest_paths);
+    let breeds_lookup: HashMap<String, Vec<String>> = breeds
+        .iter()
+        .map(|(k, v)| (k.clone(), v.clone()))
+        .collect();
     let main_breeds: Vec<String> = breeds.keys().cloned().collect();
     let breed_images = build_breed_image_map(&manifest_paths);
     let sub_breed_images = build_sub_breed_image_map(&manifest_paths);
@@ -851,6 +859,7 @@ async fn run_server() {
     let state = AppState {
         urls: Arc::new(urls),
         breeds: Arc::new(breeds),
+        breeds_lookup: Arc::new(breeds_lookup),
         main_breeds: Arc::new(main_breeds),
         breed_images: Arc::new(breed_images),
         sub_breed_images: Arc::new(sub_breed_images),
