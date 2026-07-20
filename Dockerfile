@@ -90,3 +90,12 @@ COPY --from=rust-builder /usr/local/bin/dog-ceo-rust /usr/local/bin/dog-ceo-rust
 EXPOSE 3000
 USER 65532:65532
 CMD ["/usr/local/bin/dog-ceo-rust"]
+
+# Stage 4: Hardened static image host for JPG files only
+FROM nginxinc/nginx-unprivileged:stable-alpine AS images
+
+COPY nginx/nginx.conf /etc/nginx/nginx.conf
+COPY nginx/images.conf /etc/nginx/conf.d/default.conf
+COPY --from=builder /app/ /usr/share/nginx/html/
+
+EXPOSE 8080

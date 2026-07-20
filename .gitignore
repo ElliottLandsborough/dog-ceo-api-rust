@@ -2,3 +2,6 @@
 manifest.nul
 tempimages
 dog_ceo_api_rust_runtime.tar
+dog_ceo_api_rust_images.tar
+*.tar
+*.tar.gz
