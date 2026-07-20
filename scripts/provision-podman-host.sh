@@ -12,8 +12,10 @@ WWW_SERVER_NAME="${WWW_SERVER_NAME:-www.dog.ceo}"
 STATUS_SERVER_NAMES="${STATUS_SERVER_NAMES:-stats.dog.ceo status.dog.ceo}"
 API_UPSTREAM_PORTS="${API_UPSTREAM_PORTS:-10081 10082}"
 IMAGES_UPSTREAM_PORT="${IMAGES_UPSTREAM_PORT:-10080}"
-NGINX_IMAGE="${NGINX_IMAGE:-nginxinc/nginx-unprivileged:stable-alpine}"
+UPSTREAM_HOST="${UPSTREAM_HOST:-host.containers.internal}"
+NGINX_IMAGE="${NGINX_IMAGE:-docker.io/nginxinc/nginx-unprivileged:stable-alpine}"
 NGINX_CONTAINER_NAME="${NGINX_CONTAINER_NAME:-dog_ceo_nginx}"
+NGINX_HOST_BIND="${NGINX_HOST_BIND:-0.0.0.0}"
 NGINX_CONF_DIR="/home/${DEPLOY_USER}/nginx"
 NGINX_CONF_FILE="${NGINX_CONF_DIR}/default.conf"
 
@@ -46,17 +48,17 @@ cat >"$NGINX_CONF_FILE" <<EOF
 # CoreOS Podman nginx config for dog.ceo.
 #
 # Containers expected on the host:
-#   api    -> 127.0.0.1:${API_UPSTREAM_PORTS} (round robin through nginx)
+#   api    -> ${UPSTREAM_HOST}:${API_UPSTREAM_PORTS} (round robin through nginx)
 #   extra  -> one additional runtime can run outside the nginx upstream set
-#   images -> 127.0.0.1:10080
+#   images -> ${UPSTREAM_HOST}:${IMAGES_UPSTREAM_PORT}
 
 upstream dog_api_runtime {
-$(for p in $API_UPSTREAM_PORTS; do printf '    server 127.0.0.1:%s;\n' "$p"; done)
+$(for p in $API_UPSTREAM_PORTS; do printf '    server %s:%s;\n' "$UPSTREAM_HOST" "$p"; done)
     keepalive 32;
 }
 
 upstream dog_images {
-    server 127.0.0.1:${IMAGES_UPSTREAM_PORT};
+    server ${UPSTREAM_HOST}:${IMAGES_UPSTREAM_PORT};
     keepalive 16;
 }
 
@@ -156,7 +158,7 @@ server {
             return 204;
         }
 
-        rewrite ^/breeds/(.*)$ /$1 break;
+        rewrite ^/breeds/(.*)$ /\$1 break;
 
         add_header Cache-Control "public, max-age=31536000, immutable" always;
         add_header Access-Control-Allow-Origin "*" always;
@@ -179,7 +181,7 @@ server {
     }
 
     location / {
-        rewrite ^/breeds/(.*)$ /$1 break;
+        rewrite ^/breeds/(.*)$ /\$1 break;
 
         proxy_http_version 1.1;
         proxy_set_header Connection "";
@@ -207,12 +209,16 @@ server {
 }
 EOF
 
-sudo -iu "$DEPLOY_USER" \
-  env XDG_RUNTIME_DIR="/run/user/$DEPLOY_UID" \
-      DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$DEPLOY_UID/bus" \
-  podman run --rm --entrypoint nginx \
-  -v "$NGINX_CONF_FILE:/etc/nginx/conf.d/default.conf:ro,Z" \
-  "$NGINX_IMAGE" -t >/dev/null
+if ! sudo -iu "$DEPLOY_USER" \
+    env XDG_RUNTIME_DIR="/run/user/$DEPLOY_UID" \
+            DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$DEPLOY_UID/bus" \
+    podman run --rm --security-opt label=disable --entrypoint nginx \
+    -v "$NGINX_CONF_FILE:/etc/nginx/conf.d/default.conf:ro" \
+    "$NGINX_IMAGE" -t; then
+    echo "--- generated nginx config: $NGINX_CONF_FILE ---" >&2
+    sed -n '1,240p' "$NGINX_CONF_FILE" >&2
+    exit 1
+fi
 
 echo "== [6/7] start nginx container =="
 sudo -iu "$DEPLOY_USER" \
@@ -222,14 +228,15 @@ sudo -iu "$DEPLOY_USER" \
 sudo -iu "$DEPLOY_USER" \
   env XDG_RUNTIME_DIR="/run/user/$DEPLOY_UID" \
       DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$DEPLOY_UID/bus" \
-  podman rm -f dog_ceo_api_rust_1 dog_ceo_api_rust_2 dog_ceo_api_rust_3 dog_ceo_api_rust_4 dog_ceo_api_images "$NGINX_CONTAINER_NAME" >/dev/null 2>&1 || true
+    podman rm -f "$NGINX_CONTAINER_NAME" >/dev/null 2>&1 || true
 sudo -iu "$DEPLOY_USER" \
   env XDG_RUNTIME_DIR="/run/user/$DEPLOY_UID" \
       DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$DEPLOY_UID/bus" \
   podman run -d --restart unless-stopped \
+        --security-opt label=disable \
     --name "$NGINX_CONTAINER_NAME" \
-    -p 127.0.0.1:80:8080 \
-    -v "$NGINX_CONF_FILE:/etc/nginx/conf.d/default.conf:ro,Z" \
+        -p ${NGINX_HOST_BIND}:80:8080 \
+        -v "$NGINX_CONF_FILE:/etc/nginx/conf.d/default.conf:ro" \
     "$NGINX_IMAGE"
 
 echo "== [7/7] firewall =="

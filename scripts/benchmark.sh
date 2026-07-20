@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-HOSTS=(alma-test-1-hf-intel alma-test-2-hp-amd alma-test-2-hp-intel)
+HOSTS=(golf)
 ENDPOINT_PATH="/api/breeds/image/random"
 
 pick_tool() {

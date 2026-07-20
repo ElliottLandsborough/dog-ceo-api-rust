@@ -11,15 +11,16 @@ RUNTIME_IMAGE_TAR ?= dog_ceo_api_rust_runtime.tar
 IMAGES_IMAGE_NAME ?= dog-ceo-api-rust:images
 IMAGES_IMAGE_TAR ?= dog_ceo_api_rust_images.tar
 REMOTE_HOST ?= coreos.example
+PROVISION_HOST ?= $(HOST)core
 REMOTE_PLATFORM ?= linux/amd64
 REMOTE_ENGINE ?= podman
 REMOTE_BASE_DIR ?= /home/deploy/dog-ceo-api-rust
 APP_BASENAME ?= dog_ceo_api_rust
-HOST_PORTS ?= 10081 10082 10083
+IMAGES_CONTAINER_NAME ?= dog_ceo_api_images
+HOST_PORTS ?= 10081 10082
 CONTAINER_PORT ?= 3000
 IMAGES_HOST_PORT ?= 10080
 IMAGES_CONTAINER_PORT ?= 8080
-API_UPSTREAM_PORTS ?= 10081 10082
 SERVER_NAME ?= dog.ceo
 IMAGES_SERVER_NAME ?= images.dog.ceo
 WWW_SERVER_NAME ?= www.dog.ceo
@@ -53,7 +54,7 @@ help:
 	@echo "  make run-remote-images     - run static images container bound to localhost:$(IMAGES_HOST_PORT)"
 	@echo "  make deploy-to-production  - test, build, ship, and run both runtime and images containers"
 	@echo "  make deploy-to-host HOST=x - ship + run existing tars on a single host (ssh alias)"
-	@echo "  make provision-host HOST=x - provision one CoreOS host for rootless podman + nginx"
+	@echo "  make provision-host HOST=x - provision via $(HOST)core by default, deploy remains on HOST=x"
 	@echo "  make remote-logs           - tail API logs from the remote host"
 	@echo "  make remote-logs-images    - tail images logs from the remote host"
 
@@ -104,16 +105,16 @@ cleanup-images:
 	rm -rf $(TEMPIMAGES_DIR)
 
 build-runtime-image: prepare-images
-	podman build --platform $(REMOTE_PLATFORM) --target runtime -t $(RUNTIME_IMAGE_NAME) .
+	docker build --platform $(REMOTE_PLATFORM) --target runtime -t $(RUNTIME_IMAGE_NAME) .
 
 build-images-image: prepare-images
-	podman build --platform $(REMOTE_PLATFORM) --target images -t $(IMAGES_IMAGE_NAME) .
+	docker build --platform $(REMOTE_PLATFORM) --target images -t $(IMAGES_IMAGE_NAME) .
 
 save-runtime: build-runtime-image
-	podman save $(RUNTIME_IMAGE_NAME) -o $(RUNTIME_IMAGE_TAR)
+	docker save $(RUNTIME_IMAGE_NAME) -o $(RUNTIME_IMAGE_TAR)
 
 save-images: build-images-image
-	podman save $(IMAGES_IMAGE_NAME) -o $(IMAGES_IMAGE_TAR)
+	docker save $(IMAGES_IMAGE_NAME) -o $(IMAGES_IMAGE_TAR)
 
 save-image: save-runtime save-images
 	$(MAKE) cleanup-images
@@ -121,7 +122,6 @@ save-image: save-runtime save-images
 send-image:
 	ssh $(REMOTE_HOST) "mkdir -p $(REMOTE_BASE_DIR) && chmod 700 $(REMOTE_BASE_DIR)"
 	scp $(RUNTIME_IMAGE_TAR) $(REMOTE_HOST):$(REMOTE_BASE_DIR)/$(RUNTIME_IMAGE_TAR)
-	scp $(IMAGES_IMAGE_TAR) $(REMOTE_HOST):$(REMOTE_BASE_DIR)/$(IMAGES_IMAGE_TAR)
 
 delete-local-tars:
 	rm -f $(RUNTIME_IMAGE_TAR) $(IMAGES_IMAGE_TAR)
@@ -129,24 +129,17 @@ delete-local-tars:
 run-remote:
 	ssh $(REMOTE_HOST) "$(REMOTE_ENGINE) load -i $(REMOTE_BASE_DIR)/$(RUNTIME_IMAGE_TAR)"
 	ssh $(REMOTE_HOST) 'set -euo pipefail; \
-	for name in dog_ceo_api_rust_1 dog_ceo_api_rust_2 dog_ceo_api_rust_3 dog_ceo_api_rust_4; do \
+	for name in dog_ceo_api_rust_1 dog_ceo_api_rust_2; do \
 		$(REMOTE_ENGINE) rm -f "$$name" >/dev/null 2>&1 || true; \
 	done; \
 	i=1; for port in $(HOST_PORTS); do \
 		name=$(APP_BASENAME)_$$i; \
-		$(REMOTE_ENGINE) run -d --restart unless-stopped --platform $(REMOTE_PLATFORM) -p 127.0.0.1:$$port:$(CONTAINER_PORT) --name $$name $(RUNTIME_IMAGE_NAME); \
+		$(REMOTE_ENGINE) run -d --restart unless-stopped --platform $(REMOTE_PLATFORM) -p $$port:$(CONTAINER_PORT) --name $$name $(RUNTIME_IMAGE_NAME); \
 		i=$$((i+1)); \
 	done'
 	ssh $(REMOTE_HOST) "rm -f $(REMOTE_BASE_DIR)/$(RUNTIME_IMAGE_TAR)"
 
-run-remote-images:
-	ssh $(REMOTE_HOST) "$(REMOTE_ENGINE) load -i $(REMOTE_BASE_DIR)/$(IMAGES_IMAGE_TAR)"
-	ssh $(REMOTE_HOST) 'set -euo pipefail; \
-	$(REMOTE_ENGINE) rm -f $(IMAGES_CONTAINER_NAME) dog_ceo_api_images >/dev/null 2>&1 || true'
-	ssh $(REMOTE_HOST) "$(REMOTE_ENGINE) run -d --restart unless-stopped --platform $(REMOTE_PLATFORM) --read-only --security-opt no-new-privileges --cap-drop ALL -p 127.0.0.1:$(IMAGES_HOST_PORT):$(IMAGES_CONTAINER_PORT) --name $(IMAGES_CONTAINER_NAME) $(IMAGES_IMAGE_NAME)"
-	ssh $(REMOTE_HOST) "rm -f $(REMOTE_BASE_DIR)/$(IMAGES_IMAGE_TAR)"
-
-deploy-to-production: test save-image send-image run-remote run-remote-images delete-local-tars
+deploy-to-production: test save-image send-image run-remote delete-local-tars
 
 # Ship already-built tars to one host (no rebuild): make deploy-to-host HOST=coreos-host
 # or set REMOTE_HOST=coreos-host and run make deploy-to-host
@@ -154,14 +147,14 @@ deploy-to-production: test save-image send-image run-remote run-remote-images de
 deploy-to-host:
 	@test -n "$(HOST)" || { echo "usage: make deploy-to-host HOST=<ssh-alias>"; exit 1; }
 	@test -f $(RUNTIME_IMAGE_TAR) || { echo "no $(RUNTIME_IMAGE_TAR) — run 'make save-image' first"; exit 1; }
-	$(MAKE) send-image run-remote run-remote-images REMOTE_HOST=$(HOST)
+	$(MAKE) send-image run-remote REMOTE_HOST=$(HOST)
 
 # Provision one CoreOS host with rootless podman, a deploy user, and nginx
 # Example: make provision-host HOST=coreos-host
 
 provision-host:
 	@test -n "$(HOST)" || { echo "usage: make provision-host HOST=<ssh-alias>"; exit 1; }
-	ssh $(HOST) 'sudo env API_UPSTREAM_PORTS="$(API_UPSTREAM_PORTS)" IMAGES_UPSTREAM_PORT="$(IMAGES_HOST_PORT)" SERVER_NAME="$(SERVER_NAME)" IMAGES_SERVER_NAME="$(IMAGES_SERVER_NAME)" WWW_SERVER_NAME="$(WWW_SERVER_NAME)" STATUS_SERVER_NAMES="$(STATUS_SERVER_NAMES)" bash -s' < scripts/provision-podman-host.sh
+	ssh $(PROVISION_HOST) 'sudo -n env API_UPSTREAM_PORTS="$(HOST_PORTS)" IMAGES_UPSTREAM_PORT="$(IMAGES_HOST_PORT)" SERVER_NAME="$(SERVER_NAME)" IMAGES_SERVER_NAME="$(IMAGES_SERVER_NAME)" WWW_SERVER_NAME="$(WWW_SERVER_NAME)" STATUS_SERVER_NAMES="$(STATUS_SERVER_NAMES)" bash -s' < scripts/provision-podman-host.sh
 
 remote-logs:
 	ssh $(REMOTE_HOST) "$(REMOTE_ENGINE) logs -f $(APP_BASENAME)_1"
