@@ -50,8 +50,8 @@ RUN non_jpg_files=$(find . -type f ! -name "*.jpg" ! -name "*.jpeg") && \
       echo "SUCCESS: Only JPG files found"; \
     fi
 
-# Stage 2: Build the Rust binary in the final image for now
-FROM rust:bookworm
+# Stage 2: Build the Rust binary
+FROM rust:bookworm AS rust-builder
 
 # Avoid prompts from apt
 ENV DEBIAN_FRONTEND=noninteractive
@@ -81,5 +81,11 @@ RUN find /images -type f -printf 'dog-api-images/%P\0' > /app/manifest.nul && \
   cargo build --release --target x86_64-unknown-linux-musl && \
   install -Dm755 /app/target/x86_64-unknown-linux-musl/release/dog-ceo-rust /usr/local/bin/dog-ceo-rust
 
-# Default command
-CMD ["/bin/bash"]
+# Stage 3: Minimal runtime image with only the static binary
+FROM scratch AS runtime
+
+COPY --from=rust-builder /usr/local/bin/dog-ceo-rust /usr/local/bin/dog-ceo-rust
+
+EXPOSE 3000
+USER 65532:65532
+CMD ["/usr/local/bin/dog-ceo-rust"]
