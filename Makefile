@@ -17,8 +17,9 @@ REMOTE_ENGINE ?= podman
 REMOTE_BASE_DIR ?= /home/deploy/dog-ceo-api-rust
 APP_BASENAME ?= dog_ceo_api_rust
 IMAGES_CONTAINER_NAME ?= dog_ceo_api_images
-HOST_PORTS ?= 10081 10082
+HOST_PORTS ?= 10081
 CONTAINER_PORT ?= 3000
+API_WORKER_THREADS ?= 1
 IMAGES_HOST_PORT ?= 10080
 IMAGES_CONTAINER_PORT ?= 8080
 SERVER_NAME ?= dog.ceo
@@ -129,12 +130,12 @@ delete-local-tars:
 run-remote:
 	ssh $(REMOTE_HOST) "$(REMOTE_ENGINE) load -i $(REMOTE_BASE_DIR)/$(RUNTIME_IMAGE_TAR)"
 	ssh $(REMOTE_HOST) 'set -euo pipefail; \
-	for name in dog_ceo_api_rust_1 dog_ceo_api_rust_2; do \
+	for name in dog_ceo_api_rust_1; do \
 		$(REMOTE_ENGINE) rm -f "$$name" >/dev/null 2>&1 || true; \
 	done; \
 	i=1; for port in $(HOST_PORTS); do \
 		name=$(APP_BASENAME)_$$i; \
-		$(REMOTE_ENGINE) run -d --restart unless-stopped --platform $(REMOTE_PLATFORM) -p $$port:$(CONTAINER_PORT) --name $$name $(RUNTIME_IMAGE_NAME); \
+		$(REMOTE_ENGINE) run -d --restart unless-stopped --platform $(REMOTE_PLATFORM) -e API_WORKER_THREADS=$(API_WORKER_THREADS) -p $$port:$(CONTAINER_PORT) --name $$name $(RUNTIME_IMAGE_NAME); \
 		i=$$((i+1)); \
 	done'
 	ssh $(REMOTE_HOST) "rm -f $(REMOTE_BASE_DIR)/$(RUNTIME_IMAGE_TAR)"
