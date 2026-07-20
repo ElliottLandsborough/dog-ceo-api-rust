@@ -21,7 +21,7 @@ use std::sync::Arc;
 const MANIFEST_BYTES: &[u8] = include_bytes!("../manifest.nul");
 const MAX_BREED_SEGMENT_LEN: usize = 64;
 const MAX_COUNT_INPUT_LEN: usize = 32;
-const WORKER_THREADS_ENV: &str = "DOG_API_WORKER_THREADS";
+const WORKER_THREADS_ENV: &str = "API_WORKER_THREADS";
 
 thread_local! {
     static FAST_RNG: RefCell<SmallRng> = RefCell::new(SmallRng::from_entropy());

@@ -9,7 +9,7 @@ rm -rf tempimages/.gitignore
 rm -rf tempimages/README.md
 rm -rf tempimages/LICENSE
 
-docker build --target runtime -t dog-ceo-api-rust:runtime .
-docker build --target images -t dog-ceo-api-rust:images .
+podman build --target runtime -t dog-ceo-api-rust:runtime .
+podman build --target images -t dog-ceo-api-rust:images .
 
 rm -rf tempimages
