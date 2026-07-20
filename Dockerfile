@@ -95,7 +95,7 @@ COPY src/ ./src/
 RUN find /images -type f -printf 'dog-api-images/%P\0' > /app/manifest.nul && \
   rustup target add x86_64-unknown-linux-musl && \
   CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=rust-lld \
-  RUSTFLAGS='-C target-cpu=skylake -C tune-cpu=skylake' \
+  RUSTFLAGS='-C target-cpu=skylake' \
   cargo build --release --target x86_64-unknown-linux-musl && \
   install -Dm755 /app/target/x86_64-unknown-linux-musl/release/dog-ceo-rust /usr/local/bin/dog-ceo-rust
 
