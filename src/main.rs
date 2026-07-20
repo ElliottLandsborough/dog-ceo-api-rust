@@ -7,7 +7,6 @@ use axum::{
     routing::get,
 };
 use rand::rngs::SmallRng;
-use rand::prelude::IteratorRandom;
 use rand::seq::SliceRandom;
 use rand::SeedableRng;
 use serde::Serialize;
@@ -78,8 +77,8 @@ struct RandomImagesRefResponse<'a> {
 }
 
 #[derive(Serialize)]
-struct BreedListResponse {
-    message: BTreeMap<String, Vec<String>>,
+struct BreedMapRefResponse<'a> {
+    message: BTreeMap<&'a str, &'a [String]>,
     status: &'static str,
 }
 
@@ -199,45 +198,52 @@ async fn random_main_breeds(
     .into_response()
 }
 
-async fn random_all_breeds(State(state): State<AppState>) -> Json<BreedListResponse> {
-    let maybe_selected = with_fast_rng(|rng| {
-        state
-            .breeds_lookup
-            .iter()
-            .choose(rng)
-            .map(|(breed, sub_breeds)| (breed.clone(), sub_breeds.clone()))
-    });
+async fn random_all_breeds(State(state): State<AppState>) -> Response {
+    let selected = with_fast_rng(|rng| state.main_breeds.choose(rng).map(String::as_str));
 
-    let mut out = BTreeMap::new();
+    let mut message: BTreeMap<&str, &[String]> = BTreeMap::new();
 
-    if let Some((breed, sub_breeds)) = maybe_selected {
-        out.insert(breed, sub_breeds);
+    if let Some(breed) = selected {
+        if let Some(sub_breeds) = state.breeds_lookup.get(breed) {
+            message.insert(breed, sub_breeds.as_slice());
+        }
     }
 
-    Json(BreedListResponse {
-        message: out,
+    Json(BreedMapRefResponse {
+        message,
         status: "success",
     })
+    .into_response()
 }
 
 async fn random_all_breeds_count(
     Path(count): Path<String>,
     State(state): State<AppState>,
-) -> Json<BreedListResponse> {
+) -> Response {
     let count = parse_count_or_default_one(&count);
-    let capped = count.min(state.breeds_lookup.len());
+    let capped = count.min(state.main_breeds.len());
 
-    let mut message = BTreeMap::new();
-    with_fast_rng(|rng| {
-        for (breed, sub_breeds) in state.breeds_lookup.iter().choose_multiple(rng, capped) {
-            message.insert(breed.clone(), sub_breeds.clone());
-        }
+    let selected = with_fast_rng(|rng| {
+        state
+            .main_breeds
+            .choose_multiple(rng, capped)
+            .map(String::as_str)
+            .collect::<Vec<&str>>()
     });
 
-    Json(BreedListResponse {
+    let mut message: BTreeMap<&str, &[String]> = BTreeMap::new();
+
+    for breed in selected {
+        if let Some(sub_breeds) = state.breeds_lookup.get(breed) {
+            message.insert(breed, sub_breeds.as_slice());
+        }
+    }
+
+    Json(BreedMapRefResponse {
         message,
         status: "success",
     })
+    .into_response()
 }
 
 fn parse_worker_threads(raw: Option<&str>, fallback: usize) -> usize {
