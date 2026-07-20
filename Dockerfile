@@ -21,11 +21,8 @@ COPY tempimages/ /app/
 # Fail the build if clamav flags anything
 RUN clamscan --recursive --infected --no-summary . && echo "clamscan: clean"
 
-# Normalise any non-lowercase JPG/JPEG/PNG/WEBP extension to lowercase
-RUN find . -depth -iregex ".*\.\(jpg\|jpeg\|png\|webp\)" -type f -exec bash -c 'ext=${0##*.}; base=${0%.*}; a=${base}.${ext,,}; [ "$a" != "$0" ] && mv -- "$0" "$a"' {} \;
-
-# Find uppercase 'JPG', 'JPEG' or 'PNG' and rename to lowercase equivalents
-RUN find . -depth -regex ".*\.\(JPG\|JPEG\|PNG\)" -type f -exec bash -c 'base=${0%.*} ext=${0##*.} a=${base,,}.${ext,,}; [ "$a" != "$0" ] && mv -- "$0" "$a"' {} \;
+# Normalise JPG/JPEG/PNG/WEBP files to fully-lowercase names
+RUN find . -depth -iregex ".*\.\(jpg\|jpeg\|png\|webp\)" -type f -exec bash -c 'base=${0%.*} ext=${0##*.} a=${base,,}.${ext,,}; [ "$a" != "$0" ] && mv -- "$0" "$a"' {} \;
 
 # Convert png files to jpg
 RUN find . -name "*.png" -exec mogrify -format jpg {} \;
