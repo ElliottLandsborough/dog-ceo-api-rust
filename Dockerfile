@@ -4,17 +4,25 @@ FROM ubuntu:latest AS builder
 # Avoid prompts from apt
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Update and install tmux
+# Update and install packages for image processing and optimization
 RUN apt-get update && \
-    apt-get install -y rename imagemagick jpegoptim && \
+    apt-get install -y rename imagemagick jpegoptim jpeginfo file clamav && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
+
+RUN freshclam
 
 # Set working directory
 WORKDIR /app
 
 # Copy the tempimages subfolder
 COPY tempimages/ /app/
+
+# Fail the build if clamav flags anything
+RUN clamscan --recursive --infected --no-summary . && echo "clamscan: clean"
+
+# Normalise any non-lowercase JPG/JPEG/PNG/WEBP extension to lowercase
+RUN find . -depth -iregex ".*\.\(jpg\|jpeg\|png\|webp\)" -type f -exec bash -c 'ext=${0##*.}; base=${0%.*}; a=${base}.${ext,,}; [ "$a" != "$0" ] && mv -- "$0" "$a"' {} \;
 
 # Find uppercase 'JPG', 'JPEG' or 'PNG' and rename to lowercase equivalents
 RUN find . -depth -regex ".*\.\(JPG\|JPEG\|PNG\)" -type f -exec bash -c 'base=${0%.*} ext=${0##*.} a=${base,,}.${ext,,}; [ "$a" != "$0" ] && mv -- "$0" "$a"' {} \;
@@ -34,11 +42,22 @@ RUN find . -type f -name '*.jpeg' -print0 | xargs -0 rename 's/\.jpeg/\.jpg/';
 # Replace spaces with underscores
 RUN find . -depth -name "* *" -type f -execdir bash -c 'for file; do mv -n "$file" "${file// /_}"; done' bash {} +;
 
+# Fail if a jpeg is corrupted based on jpeginfo exit code
+RUN find . -type f -name "*.jpg" -exec sh -c \
+  'for f; do jpeginfo -c "$f" > /dev/null || { echo "CORRUPT: $f"; exit 1; }; done' _ {} +
+
+# Remove EXIF data and convert to sRGB colorspace
+RUN find . -type f -name "*.jpg" -exec mogrify -auto-orient -strip -colorspace sRGB {} \;
+
 # Bring resolution down to 1080 maximum on x and y, 70% qual on images over 500K big
 RUN find . -type f -regex ".*\.\(jpg\|jpeg\)" -size +500k -exec convert {} -resize 1080x1080 -quality 70% {} \;
 
 # Optimize jpegs
 RUN find . -type f -regex ".*\.\(jpg\|jpeg\)" -exec jpegoptim --quiet --preserve --all-progressive --strip-all {} \;
+
+# Verify every final file is genuinely a JPEG by magic bytes
+RUN find . -type f -exec sh -c \
+  'for f; do file --mime-type -b "$f" | grep -q "^image/jpeg$" || { echo "BAD: $f"; exit 1; }; done' _ {} +
 
 # Exit if we still have files which aren't jpegs
 #RUN non_jpg_files=$(find . -type f ! -name "*.jpg" ! -name "*.jpeg") && \
