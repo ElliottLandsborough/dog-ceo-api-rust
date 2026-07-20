@@ -2,6 +2,7 @@
 
 set -euo pipefail
 
+rm -rf tempimages
 git clone --depth 1 --single-branch https://github.com/jigsawpieces/dog-api-images.git tempimages
 rm -rf tempimages/.git
 rm -rf tempimages/.gitignore
