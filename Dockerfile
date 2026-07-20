@@ -41,7 +41,8 @@ RUN find . -type f -regex ".*\.\(jpg\|jpeg\)" -size +500k -exec convert {} -resi
 RUN find . -type f -regex ".*\.\(jpg\|jpeg\)" -exec jpegoptim --quiet --preserve --all-progressive --strip-all {} \;
 
 # Exit if we still have files which aren't jpegs
-RUN non_jpg_files=$(find . -type f ! -name "*.jpg" ! -name "*.jpeg") && \
+#RUN non_jpg_files=$(find . -type f ! -name "*.jpg" ! -name "*.jpeg") && \
+RUN non_jpg_files=$(find . -type f ! -name "*.jpg") && \
     if [ -n "$non_jpg_files" ]; then \
       echo "ERROR: Found non-JPG files:" && \
       echo "$non_jpg_files" && \
