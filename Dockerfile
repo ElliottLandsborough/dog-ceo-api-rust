@@ -91,11 +91,13 @@ WORKDIR /app
 COPY Cargo.toml Cargo.lock ./
 COPY src/ ./src/
 
+ARG RUSTFLAGS_EXTRA=""
+
 # Embed the processed image inventory and build a static Linux x86_64 binary.
 RUN find /images -type f -printf 'dog-api-images/%P\0' > /app/manifest.nul && \
   rustup target add x86_64-unknown-linux-musl && \
   CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=rust-lld \
-  RUSTFLAGS='-C target-cpu=skylake' \
+  RUSTFLAGS="-C target-cpu=skylake ${RUSTFLAGS_EXTRA}" \
   cargo build --release --target x86_64-unknown-linux-musl && \
   install -Dm755 /app/target/x86_64-unknown-linux-musl/release/dog-ceo-rust /usr/local/bin/dog-ceo-rust
 

@@ -7,11 +7,10 @@ set -euo pipefail
 DEPLOY_USER="${DEPLOY_USER:-deploy}"
 OPEN_PORTS="${OPEN_PORTS:-80}"
 SERVER_NAME="${SERVER_NAME:-dog.ceo}"
-IMAGES_SERVER_NAME="${IMAGES_SERVER_NAME:-images.dog.ceo}"
 WWW_SERVER_NAME="${WWW_SERVER_NAME:-www.dog.ceo}"
 STATUS_SERVER_NAMES="${STATUS_SERVER_NAMES:-stats.dog.ceo status.dog.ceo}"
+WEB_UPSTREAM_PORT="${WEB_UPSTREAM_PORT:-8080}"
 API_UPSTREAM_PORTS="${API_UPSTREAM_PORTS:-10081}"
-IMAGES_UPSTREAM_PORT="${IMAGES_UPSTREAM_PORT:-10080}"
 UPSTREAM_HOST="${UPSTREAM_HOST:-host.containers.internal}"
 NGINX_IMAGE="${NGINX_IMAGE:-docker.io/nginxinc/nginx-unprivileged:stable-alpine}"
 NGINX_CONTAINER_NAME="${NGINX_CONTAINER_NAME:-dog_ceo_nginx}"
@@ -50,7 +49,7 @@ cat >"$NGINX_CONF_FILE" <<EOF
 # Containers expected on the host:
 #   api    -> ${UPSTREAM_HOST}:${API_UPSTREAM_PORTS} (round robin through nginx)
 #   extra  -> one additional runtime can run outside the nginx upstream set
-#   images -> ${UPSTREAM_HOST}:${IMAGES_UPSTREAM_PORT}
+#   web    -> ${UPSTREAM_HOST}:${WEB_UPSTREAM_PORT}
 
 upstream dog_api_runtime {
 $(for p in $API_UPSTREAM_PORTS; do printf '    server %s:%s;\n' "$UPSTREAM_HOST" "$p"; done)
@@ -119,78 +118,6 @@ server {
 
     location / {
         return 404;
-    }
-}
-
-server {
-    listen 8080;
-    listen [::]:8080;
-    server_name ${IMAGES_SERVER_NAME};
-
-    if (\$request_method !~ ^(GET|HEAD|OPTIONS)$) {
-        return 405;
-    }
-
-    add_header X-Content-Type-Options "nosniff" always;
-    add_header X-Frame-Options "SAMEORIGIN" always;
-
-    location = /health {
-        access_log off;
-        default_type text/plain;
-        return 200 "OK\n";
-    }
-
-    location ~ /\. {
-        deny all;
-        access_log off;
-        log_not_found off;
-    }
-
-    location ~* \.(jpg|jpeg)$ {
-        access_log off;
-
-        if (\$request_method = OPTIONS) {
-            add_header Access-Control-Allow-Origin "*" always;
-            add_header Access-Control-Allow-Methods "GET, OPTIONS" always;
-            add_header Access-Control-Allow-Headers "Origin, Content-Type, Accept" always;
-            add_header Access-Control-Max-Age 86400 always;
-            add_header Content-Length 0;
-            return 204;
-        }
-
-        rewrite ^/breeds/(.*)$ /\$1 break;
-
-        add_header Cache-Control "public, max-age=31536000, immutable" always;
-        add_header Access-Control-Allow-Origin "*" always;
-        add_header Access-Control-Allow-Methods "GET, OPTIONS" always;
-        add_header Access-Control-Allow-Headers "Origin, Content-Type, Accept" always;
-        add_header X-Content-Type-Options "nosniff" always;
-        add_header X-Frame-Options "SAMEORIGIN" always;
-
-        proxy_hide_header Cache-Control;
-        proxy_hide_header Expires;
-
-        proxy_http_version 1.1;
-        proxy_set_header Connection "";
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto \$scheme;
-
-        proxy_pass http://dog_images;
-    }
-
-    location / {
-        rewrite ^/breeds/(.*)$ /\$1 break;
-
-        proxy_http_version 1.1;
-        proxy_set_header Connection "";
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto \$scheme;
-
-        proxy_pass http://dog_images;
     }
 }
 

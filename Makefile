@@ -5,6 +5,8 @@ RUSTUP ?= $(HOME)/.cargo/bin/rustup
 TARGET_CPU ?= haswell
 HOST_CC ?= /usr/bin/cc
 HOST_CXX ?= /usr/bin/c++
+PGO_DATA_DIR ?= target/pgo-data
+PGO_PROFDATA ?= $(PGO_DATA_DIR)/merged.profdata
 
 RUNTIME_IMAGE_NAME ?= dog-ceo-api-rust:runtime
 RUNTIME_IMAGE_TAR ?= dog_ceo_api_rust_runtime.tar
@@ -19,9 +21,9 @@ APP_BASENAME ?= dog_ceo_api_rust
 IMAGES_CONTAINER_NAME ?= dog_ceo_api_images
 HOST_PORTS ?= 10081
 CONTAINER_PORT ?= 3000
-API_WORKER_THREADS ?= 1
 IMAGES_HOST_PORT ?= 10080
 IMAGES_CONTAINER_PORT ?= 8080
+RUNTIME_RUSTFLAGS_EXTRA ?=
 SERVER_NAME ?= dog.ceo
 IMAGES_SERVER_NAME ?= images.dog.ceo
 WWW_SERVER_NAME ?= www.dog.ceo
@@ -29,7 +31,7 @@ STATUS_SERVER_NAMES ?= stats.dog.ceo status.dog.ceo
 TEMPIMAGES_DIR ?= tempimages
 IMAGES_REPO ?= https://github.com/jigsawpieces/dog-api-images.git
 
-.PHONY: help check test build build-release build-linux target-linux run run-prod parity parity-start clean \
+.PHONY: help check test build build-release build-linux build-linux-pgo-generate build-linux-pgo-use target-linux run run-prod parity parity-start clean \
 	prepare-images cleanup-images build-runtime-image build-images-image save-images save-runtime save-image \
 	send-image run-remote run-remote-images deploy-to-production delete-local-tars remote-logs remote-logs-images \
 	deploy-to-host provision-host
@@ -42,12 +44,15 @@ help:
 	@echo "  make build-release - cargo build --release"
 	@echo "  make target-linux  - install rust target x86_64-unknown-linux-musl (static)"
 	@echo "  make build-linux   - cargo build --release --target x86_64-unknown-linux-musl (static, linker=rust-lld, cpu=$(TARGET_CPU))"
+	@echo "  make build-linux-pgo-generate - build instrumented musl binary for PGO profile collection"
+	@echo "  make build-linux-pgo-use      - build optimized musl binary using $(PGO_PROFDATA)"
 	@echo "  make run           - cargo run"
 	@echo "  make run-prod      - run ./run-prod.sh"
 	@echo "  make parity        - run parity checks against an already running local server"
 	@echo "  make parity-start  - start local server, run parity checks, then stop server"
 	@echo "  make clean         - cargo clean"
 	@echo "  make build-runtime-image   - build runtime API image (linux/amd64, target=runtime)"
+	@echo "      set RUNTIME_RUSTFLAGS_EXTRA for advanced rustc flags (e.g. PGO)"
 	@echo "  make build-images-image    - build static images image (linux/amd64, target=images)"
 	@echo "  make save-image            - save both runtime and images images to tar files"
 	@echo "  make send-image            - upload both image tar files to remote host"
@@ -82,6 +87,26 @@ build-linux:
 	CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS="-C target-cpu=$(TARGET_CPU)" \
 	$(CARGO) build --release --target x86_64-unknown-linux-musl
 
+build-linux-pgo-generate:
+	mkdir -p $(PGO_DATA_DIR)
+	CC="$(HOST_CC)" CXX="$(HOST_CXX)" \
+	CARGO_TARGET_AARCH64_APPLE_DARWIN_LINKER="$(HOST_CC)" \
+	CARGO_TARGET_X86_64_APPLE_DARWIN_LINKER="$(HOST_CC)" \
+	CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=rust-lld \
+	CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS="-C target-cpu=$(TARGET_CPU) -C profile-generate=$(PGO_DATA_DIR)" \
+	$(CARGO) build --release --target x86_64-unknown-linux-musl
+	@echo "Run benchmark traffic against the instrumented binary, then merge profiles with:" \
+	&& echo "  llvm-profdata merge -o $(PGO_PROFDATA) $(PGO_DATA_DIR)/*.profraw"
+
+build-linux-pgo-use:
+	@test -f "$(PGO_PROFDATA)" || { echo "missing $(PGO_PROFDATA)"; exit 1; }
+	CC="$(HOST_CC)" CXX="$(HOST_CXX)" \
+	CARGO_TARGET_AARCH64_APPLE_DARWIN_LINKER="$(HOST_CC)" \
+	CARGO_TARGET_X86_64_APPLE_DARWIN_LINKER="$(HOST_CC)" \
+	CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=rust-lld \
+	CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_RUSTFLAGS="-C target-cpu=$(TARGET_CPU) -C profile-use=$(PGO_PROFDATA) -C llvm-args=-pgo-warn-missing-function" \
+	$(CARGO) build --release --target x86_64-unknown-linux-musl
+
 run:
 	$(CARGO) run
 
@@ -106,7 +131,7 @@ cleanup-images:
 	rm -rf $(TEMPIMAGES_DIR)
 
 build-runtime-image: prepare-images
-	docker build --platform $(REMOTE_PLATFORM) --target runtime -t $(RUNTIME_IMAGE_NAME) .
+	docker build --platform $(REMOTE_PLATFORM) --build-arg RUSTFLAGS_EXTRA="$(RUNTIME_RUSTFLAGS_EXTRA)" --target runtime -t $(RUNTIME_IMAGE_NAME) .
 
 build-images-image: prepare-images
 	docker build --platform $(REMOTE_PLATFORM) --target images -t $(IMAGES_IMAGE_NAME) .
@@ -135,7 +160,7 @@ run-remote:
 	done; \
 	i=1; for port in $(HOST_PORTS); do \
 		name=$(APP_BASENAME)_$$i; \
-		$(REMOTE_ENGINE) run -d --restart unless-stopped --platform $(REMOTE_PLATFORM) -e API_WORKER_THREADS=$(API_WORKER_THREADS) -p $$port:$(CONTAINER_PORT) --name $$name $(RUNTIME_IMAGE_NAME); \
+		$(REMOTE_ENGINE) run -d --restart unless-stopped --platform $(REMOTE_PLATFORM) -p $$port:$(CONTAINER_PORT) --name $$name $(RUNTIME_IMAGE_NAME); \
 		i=$$((i+1)); \
 	done'
 	ssh $(REMOTE_HOST) "rm -f $(REMOTE_BASE_DIR)/$(RUNTIME_IMAGE_TAR)"

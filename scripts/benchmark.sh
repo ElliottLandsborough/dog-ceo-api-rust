@@ -2,7 +2,7 @@
 set -euo pipefail
 
 HOSTS=(golf)
-ENDPOINT_PATH="/api/breeds/list/all"
+ENDPOINT_PATH="/api/breeds/image/random"
 
 pick_tool() {
   if command -v hey >/dev/null 2>&1; then

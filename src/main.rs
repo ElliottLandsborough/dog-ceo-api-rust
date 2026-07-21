@@ -1,7 +1,11 @@
 use axum::{
+    body::Bytes,
     Json, Router,
     extract::{Path, Request, State},
-    http::{StatusCode, header::CACHE_CONTROL},
+    http::{
+        StatusCode,
+        header::{CACHE_CONTROL, CONTENT_TYPE},
+    },
     middleware::{self, Next},
     response::{IntoResponse, Response},
     routing::get,
@@ -13,7 +17,6 @@ use serde::Serialize;
 use std::cell::RefCell;
 use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
-use std::env;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -21,7 +24,6 @@ use std::sync::Arc;
 const MANIFEST_BYTES: &[u8] = include_bytes!("../manifest.nul");
 const MAX_BREED_SEGMENT_LEN: usize = 64;
 const MAX_COUNT_INPUT_LEN: usize = 32;
-const WORKER_THREADS_ENV: &str = "API_WORKER_THREADS";
 
 thread_local! {
     static FAST_RNG: RefCell<SmallRng> = RefCell::new(SmallRng::from_entropy());
@@ -45,11 +47,12 @@ fn parse_manifest(bytes: &[u8]) -> Vec<PathBuf> {
 #[derive(Clone)]
 struct AppState {
     urls: Arc<Vec<String>>,
-    breeds: Arc<BTreeMap<String, Vec<String>>>,
     breeds_lookup: Arc<HashMap<String, Vec<String>>>,
     main_breeds: Arc<Vec<String>>,
     breed_images: Arc<HashMap<String, Vec<String>>>,
     sub_breed_images: Arc<HashMap<String, HashMap<String, Vec<String>>>>,
+    list_all_breeds_json: Bytes,
+    list_main_breeds_json: Bytes,
 }
 
 #[derive(Serialize)]
@@ -139,19 +142,11 @@ async fn random_images(
 }
 
 async fn list_all_breeds(State(state): State<AppState>) -> Response {
-    Json(BreedListRefResponse {
-        message: &state.breeds,
-        status: "success",
-    })
-    .into_response()
+    cached_json_response(&state.list_all_breeds_json)
 }
 
 async fn list_main_breeds(State(state): State<AppState>) -> Response {
-    Json(RandomImagesRefResponse {
-        message: state.main_breeds.as_slice(),
-        status: "success",
-    })
-    .into_response()
+    cached_json_response(&state.list_main_breeds_json)
 }
 
 async fn random_main_breed(
@@ -246,19 +241,12 @@ async fn random_all_breeds_count(
     .into_response()
 }
 
-fn parse_worker_threads(raw: Option<&str>, fallback: usize) -> usize {
-    match raw {
-        Some(value) => value.parse::<usize>().ok().filter(|v| *v > 0).unwrap_or(fallback),
-        None => fallback,
-    }
-}
-
-fn configured_worker_threads() -> usize {
-    let fallback = std::thread::available_parallelism()
-        .map(|n| n.get())
-        .unwrap_or(1);
-
-    parse_worker_threads(env::var(WORKER_THREADS_ENV).ok().as_deref(), fallback)
+fn cached_json_response(payload: &Bytes) -> Response {
+    (
+        [(CONTENT_TYPE, "application/json")],
+        payload.clone(),
+    )
+        .into_response()
 }
 
 async fn cache_control_middleware(req: Request, next: Next) -> Response {
@@ -770,20 +758,6 @@ mod tests {
         assert_eq!(sub_body.code, 404);
     }
 
-    #[test]
-    fn parse_worker_threads_uses_fallback_for_invalid_values() {
-        assert_eq!(parse_worker_threads(None, 4), 4);
-        assert_eq!(parse_worker_threads(Some(""), 4), 4);
-        assert_eq!(parse_worker_threads(Some("0"), 4), 4);
-        assert_eq!(parse_worker_threads(Some("-2"), 4), 4);
-        assert_eq!(parse_worker_threads(Some("abc"), 4), 4);
-    }
-
-    #[test]
-    fn parse_worker_threads_accepts_positive_values() {
-        assert_eq!(parse_worker_threads(Some("1"), 4), 1);
-        assert_eq!(parse_worker_threads(Some("8"), 4), 8);
-    }
 }
 
 fn build_breed_map(paths: &[PathBuf]) -> BTreeMap<String, Vec<String>> {
@@ -882,11 +856,23 @@ async fn run_server() {
     let manifest_paths = parse_manifest(MANIFEST_BYTES);
     let urls: Vec<String> = manifest_paths.iter().map(to_public_url).collect();
     let breeds = build_breed_map(&manifest_paths);
-    let breeds_lookup: HashMap<String, Vec<String>> = breeds
-        .iter()
-        .map(|(k, v)| (k.clone(), v.clone()))
-        .collect();
+    let breeds_lookup: HashMap<String, Vec<String>> =
+        breeds.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
     let main_breeds: Vec<String> = breeds.keys().cloned().collect();
+    let list_all_breeds_json = Bytes::from(
+        serde_json::to_vec(&BreedListRefResponse {
+            message: &breeds,
+            status: "success",
+        })
+        .expect("serialize cached /breeds/list/all response"),
+    );
+    let list_main_breeds_json = Bytes::from(
+        serde_json::to_vec(&RandomImagesRefResponse {
+            message: main_breeds.as_slice(),
+            status: "success",
+        })
+        .expect("serialize cached /breeds/list response"),
+    );
     let breed_images = build_breed_image_map(&manifest_paths);
     let sub_breed_images = build_sub_breed_image_map(&manifest_paths);
     println!("Loaded {} manifest entries", urls.len());
@@ -894,11 +880,12 @@ async fn run_server() {
 
     let state = AppState {
         urls: Arc::new(urls),
-        breeds: Arc::new(breeds),
         breeds_lookup: Arc::new(breeds_lookup),
         main_breeds: Arc::new(main_breeds),
         breed_images: Arc::new(breed_images),
         sub_breed_images: Arc::new(sub_breed_images),
+        list_all_breeds_json,
+        list_main_breeds_json,
     };
 
     let app = Router::new()
@@ -953,13 +940,9 @@ async fn run_server() {
 }
 
 fn main() {
-    let worker_threads = configured_worker_threads();
-    println!(
-        "Starting runtime with {worker_threads} worker thread(s) (set {WORKER_THREADS_ENV} to override)"
-    );
+    println!("Starting runtime in current-thread mode");
 
-    let runtime = tokio::runtime::Builder::new_multi_thread()
-        .worker_threads(worker_threads)
+    let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
         .expect("failed to build tokio runtime");
