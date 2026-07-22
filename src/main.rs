@@ -39,6 +39,14 @@ fn with_fast_rng<T>(f: impl FnOnce(&mut SmallRng) -> T) -> T {
     })
 }
 
+fn pick_random_ref<T>(items: &[T]) -> Option<&T> {
+    if items.is_empty() {
+        None
+    } else {
+        Some(&items[fastrand::usize(..items.len())])
+    }
+}
+
 fn parse_manifest(bytes: &[u8]) -> Vec<PathBuf> {
     bytes
         .split(|b| *b == 0)
@@ -104,7 +112,7 @@ struct NotFoundWithCodeResponse {
 async fn random_image(
     State(state): State<AppState>,
 ) -> Result<Response, (StatusCode, Json<RandomImageResponse>)> {
-    let selected = with_fast_rng(|rng| state.urls.choose(rng).map(String::as_str));
+    let selected = pick_random_ref(&state.urls).map(String::as_str);
 
     let Some(url) = selected else {
         return Err((
@@ -128,14 +136,20 @@ async fn random_images(
     State(state): State<AppState>,
 ) -> Response {
     let count = parse_count_or_default_one(&count);
-    let capped = count.min(50);
-    let urls = with_fast_rng(|rng| {
-        state
-            .urls
-            .choose_multiple(rng, capped)
-            .map(String::as_str)
-            .collect::<Vec<&str>>()
-    });
+    let capped = count.min(50).min(state.urls.len());
+    let urls = if capped == 1 {
+        pick_random_ref(&state.urls)
+            .map(|s| vec![s.as_str()])
+            .unwrap_or_default()
+    } else {
+        with_fast_rng(|rng| {
+            state
+                .urls
+                .choose_multiple(rng, capped)
+                .map(String::as_str)
+                .collect::<Vec<&str>>()
+        })
+    };
 
     Json(RandomImagesPickedRefResponse {
         message: urls,
@@ -155,7 +169,7 @@ async fn list_main_breeds(State(state): State<AppState>) -> Response {
 async fn random_main_breed(
     State(state): State<AppState>,
 ) -> Result<Response, (StatusCode, Json<RandomImageResponse>)> {
-    let selected = with_fast_rng(|rng| state.main_breeds.choose(rng).map(String::as_str));
+    let selected = pick_random_ref(&state.main_breeds).map(String::as_str);
 
     let Some(breed) = selected else {
         return Err((
@@ -180,14 +194,19 @@ async fn random_main_breeds(
 ) -> Response {
     let count = parse_count_or_default_one(&count);
     let capped = count.min(state.main_breeds.len());
-
-    let selected = with_fast_rng(|rng| {
-        state
-            .main_breeds
-            .choose_multiple(rng, capped)
-            .map(String::as_str)
-            .collect::<Vec<&str>>()
-    });
+    let selected = if capped == 1 {
+        pick_random_ref(&state.main_breeds)
+            .map(|s| vec![s.as_str()])
+            .unwrap_or_default()
+    } else {
+        with_fast_rng(|rng| {
+            state
+                .main_breeds
+                .choose_multiple(rng, capped)
+                .map(String::as_str)
+                .collect::<Vec<&str>>()
+        })
+    };
 
     Json(RandomImagesPickedRefResponse {
         message: selected,
@@ -197,7 +216,7 @@ async fn random_main_breeds(
 }
 
 async fn random_all_breeds(State(state): State<AppState>) -> Response {
-    let selected = with_fast_rng(|rng| state.main_breeds.choose(rng).map(String::as_str));
+    let selected = pick_random_ref(&state.main_breeds).map(String::as_str);
 
     let mut message: BTreeMap<&str, &[String]> = BTreeMap::new();
 
@@ -311,7 +330,7 @@ async fn random_breed_image_endpoint(
 
     match state.breed_images.get(breed.as_ref()) {
         Some(images) if !images.is_empty() => {
-            let selected = with_fast_rng(|rng| images.choose(rng).map(String::as_str));
+            let selected = pick_random_ref(images).map(String::as_str);
             let image = selected.unwrap_or_default();
 
             Ok(Json(RandomImageRefResponse {
@@ -342,13 +361,19 @@ async fn random_breed_images_endpoint(
 
     match state.breed_images.get(breed.as_ref()) {
         Some(images) if !images.is_empty() => {
-            let capped = count.min(50);
-            let selected = with_fast_rng(|rng| {
-                images
-                    .choose_multiple(rng, capped)
-                    .map(String::as_str)
-                    .collect::<Vec<&str>>()
-            });
+            let capped = count.min(50).min(images.len());
+            let selected = if capped == 1 {
+                pick_random_ref(images)
+                    .map(|s| vec![s.as_str()])
+                    .unwrap_or_default()
+            } else {
+                with_fast_rng(|rng| {
+                    images
+                        .choose_multiple(rng, capped)
+                        .map(String::as_str)
+                        .collect::<Vec<&str>>()
+                })
+            };
 
             Ok(Json(RandomImagesPickedRefResponse {
                 message: selected,
@@ -402,7 +427,7 @@ async fn random_sub_breed_endpoint(
 
     match state.breeds_lookup.get(breed.as_ref()) {
         Some(sub_breeds) if !sub_breeds.is_empty() => {
-            let selected = with_fast_rng(|rng| sub_breeds.choose(rng).map(String::as_str));
+            let selected = pick_random_ref(sub_breeds).map(String::as_str);
             let sub_breed = selected.unwrap_or_default();
 
             Ok(Json(RandomImageRefResponse {
@@ -442,12 +467,18 @@ async fn random_sub_breeds_endpoint(
     match state.breeds_lookup.get(breed.as_ref()) {
         Some(sub_breeds) if !sub_breeds.is_empty() => {
             let capped = count.min(sub_breeds.len());
-            let selected = with_fast_rng(|rng| {
-                sub_breeds
-                    .choose_multiple(rng, capped)
-                    .map(String::as_str)
-                    .collect::<Vec<&str>>()
-            });
+            let selected = if capped == 1 {
+                pick_random_ref(sub_breeds)
+                    .map(|s| vec![s.as_str()])
+                    .unwrap_or_default()
+            } else {
+                with_fast_rng(|rng| {
+                    sub_breeds
+                        .choose_multiple(rng, capped)
+                        .map(String::as_str)
+                        .collect::<Vec<&str>>()
+                })
+            };
 
             Ok(Json(RandomImagesPickedRefResponse {
                 message: selected,
@@ -516,7 +547,7 @@ async fn random_sub_breed_image_endpoint(
 
     match maybe_images {
         Some(images) if !images.is_empty() => {
-            let selected = with_fast_rng(|rng| images.choose(rng).map(String::as_str));
+            let selected = pick_random_ref(images).map(String::as_str);
             let image = selected.unwrap_or_default();
 
             Ok(Json(RandomImageRefResponse {
@@ -554,13 +585,19 @@ async fn random_sub_breed_images_endpoint(
 
     match maybe_images {
         Some(images) if !images.is_empty() => {
-            let capped = count.min(50);
-            let selected = with_fast_rng(|rng| {
-                images
-                    .choose_multiple(rng, capped)
-                    .map(String::as_str)
-                    .collect::<Vec<&str>>()
-            });
+            let capped = count.min(50).min(images.len());
+            let selected = if capped == 1 {
+                pick_random_ref(images)
+                    .map(|s| vec![s.as_str()])
+                    .unwrap_or_default()
+            } else {
+                with_fast_rng(|rng| {
+                    images
+                        .choose_multiple(rng, capped)
+                        .map(String::as_str)
+                        .collect::<Vec<&str>>()
+                })
+            };
 
             Ok(Json(RandomImagesPickedRefResponse {
                 message: selected,
