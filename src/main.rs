@@ -10,15 +10,18 @@ use axum::{
     response::{IntoResponse, Response},
     routing::get,
 };
+use ahash::AHashMap;
 use rand::rngs::SmallRng;
 use rand::seq::SliceRandom;
 use rand::SeedableRng;
 use serde::Serialize;
 use std::cell::RefCell;
 use std::borrow::Cow;
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 use std::sync::Arc;
+
+type FastMap<K, V> = AHashMap<K, V>;
 
 // Embedded at compile time. File is no longer needed at runtime.
 const MANIFEST_BYTES: &[u8] = include_bytes!("../manifest.nul");
@@ -47,10 +50,10 @@ fn parse_manifest(bytes: &[u8]) -> Vec<PathBuf> {
 #[derive(Clone)]
 struct AppState {
     urls: Arc<Vec<String>>,
-    breeds_lookup: Arc<HashMap<String, Vec<String>>>,
+    breeds_lookup: Arc<FastMap<String, Vec<String>>>,
     main_breeds: Arc<Vec<String>>,
-    breed_images: Arc<HashMap<String, Vec<String>>>,
-    sub_breed_images: Arc<HashMap<String, HashMap<String, Vec<String>>>>,
+    breed_images: Arc<FastMap<String, Vec<String>>>,
+    sub_breed_images: Arc<FastMap<String, FastMap<String, Vec<String>>>>,
     list_all_breeds_json: Bytes,
     list_main_breeds_json: Bytes,
 }
@@ -788,8 +791,8 @@ fn build_breed_map(paths: &[PathBuf]) -> BTreeMap<String, Vec<String>> {
         .collect()
 }
 
-fn build_breed_image_map(paths: &[PathBuf]) -> HashMap<String, Vec<String>> {
-    let mut out: HashMap<String, Vec<String>> = HashMap::new();
+fn build_breed_image_map(paths: &[PathBuf]) -> FastMap<String, Vec<String>> {
+    let mut out: FastMap<String, Vec<String>> = FastMap::new();
 
     for path in paths {
         let path_str = path.to_string_lossy();
@@ -816,8 +819,8 @@ fn build_breed_image_map(paths: &[PathBuf]) -> HashMap<String, Vec<String>> {
 
 fn build_sub_breed_image_map(
     paths: &[PathBuf],
-) -> HashMap<String, HashMap<String, Vec<String>>> {
-    let mut out: HashMap<String, HashMap<String, Vec<String>>> = HashMap::new();
+) -> FastMap<String, FastMap<String, Vec<String>>> {
+    let mut out: FastMap<String, FastMap<String, Vec<String>>> = FastMap::new();
 
     for path in paths {
         let path_str = path.to_string_lossy();
@@ -856,7 +859,7 @@ async fn run_server() {
     let manifest_paths = parse_manifest(MANIFEST_BYTES);
     let urls: Vec<String> = manifest_paths.iter().map(to_public_url).collect();
     let breeds = build_breed_map(&manifest_paths);
-    let breeds_lookup: HashMap<String, Vec<String>> =
+    let breeds_lookup: FastMap<String, Vec<String>> =
         breeds.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
     let main_breeds: Vec<String> = breeds.keys().cloned().collect();
     let list_all_breeds_json = Bytes::from(
