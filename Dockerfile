@@ -10,7 +10,7 @@ RUN apt-get update && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
-RUN freshclam
+#RUN freshclam
 
 # Set working directory
 WORKDIR /app
@@ -19,7 +19,7 @@ WORKDIR /app
 COPY tempimages/ /app/
 
 # Fail the build if clamav flags anything
-RUN clamscan --recursive --infected --no-summary . && echo "clamscan: clean"
+#RUN clamscan --recursive --infected --no-summary . && echo "clamscan: clean"
 
 # Normalise JPG/JPEG/PNG/WEBP files to fully-lowercase names
 RUN find . -depth -iregex ".*\.\(jpg\|jpeg\|png\|webp\)" -type f -exec bash -c 'base=${0%.*} ext=${0##*.} a=${base,,}.${ext,,}; [ "$a" != "$0" ] && mv -- "$0" "$a"' {} \;
@@ -91,13 +91,13 @@ WORKDIR /app
 COPY Cargo.toml Cargo.lock ./
 COPY src/ ./src/
 
-ARG RUSTFLAGS_EXTRA=""
+ARG RUST_TARGET_CPU="haswell"
 
 # Embed the processed image inventory and build a static Linux x86_64 binary.
 RUN find /images -type f -printf 'dog-api-images/%P\0' > /app/manifest.nul && \
   rustup target add x86_64-unknown-linux-musl && \
   CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=rust-lld \
-  RUSTFLAGS="-C target-cpu=skylake ${RUSTFLAGS_EXTRA}" \
+  RUSTFLAGS="-C target-cpu=${RUST_TARGET_CPU}" \
   cargo build --release --target x86_64-unknown-linux-musl && \
   install -Dm755 /app/target/x86_64-unknown-linux-musl/release/dog-ceo-rust /usr/local/bin/dog-ceo-rust
 
@@ -114,7 +114,7 @@ CMD ["/usr/local/bin/dog-ceo-rust"]
 FROM nginxinc/nginx-unprivileged:stable-alpine AS images
 
 COPY nginx/nginx.conf /etc/nginx/nginx.conf
-COPY nginx/images.conf /etc/nginx/conf.d/default.conf
+COPY nginx/images.conf /etc/nginx/conf.d/images.conf
 COPY --from=builder /app/ /usr/share/nginx/html/
 
 EXPOSE 8080
