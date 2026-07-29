@@ -10,7 +10,7 @@ RUN apt-get update && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
-#RUN freshclam
+RUN freshclam
 
 # Set working directory
 WORKDIR /app
@@ -19,7 +19,7 @@ WORKDIR /app
 COPY tempimages/ /app/
 
 # Fail the build if clamav flags anything
-#RUN clamscan --recursive --infected --no-summary . && echo "clamscan: clean"
+RUN clamscan --recursive --infected --no-summary . && echo "clamscan: clean"
 
 # Normalise JPG/JPEG/PNG/WEBP files to fully-lowercase names
 RUN find . -depth -iregex ".*\.\(jpg\|jpeg\|png\|webp\)" -type f -exec bash -c 'base=${0%.*} ext=${0##*.} a=${base,,}.${ext,,}; [ "$a" != "$0" ] && mv -- "$0" "$a"' {} \;
