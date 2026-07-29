@@ -27,6 +27,16 @@ make build-static-image
 3. Build and save both images to local tar files
 make save-image
 
+4. Mirror processed images to Cloudflare R2
+AWS_ACCESS_KEY_ID=... AWS_SECRET_ACCESS_KEY=... make upload-r2 \
+	R2_ENDPOINT_URL=https://ACCOUNT_ID.r2.cloudflarestorage.com \
+	R2_BUCKET=BUCKET_NAME
+
+The default R2_PREFIX is `breeds`, matching the API image URL path. The upload mirrors
+the processed image set, including deleting objects under that prefix that no longer
+exist locally. A nonempty prefix is required so `--delete` cannot affect unrelated
+objects across the bucket.
+
 Local Docker test workflow
 
 1. Build both images
@@ -54,8 +64,11 @@ docker rm -f dog_ceo_api_rust_local dog_ceo_api_images_local
 
 Remote deploy commands (AlmaLinux, rootless podman)
 
-1. Full deploy flow (test, build, ship, run runtime + static)
-make deploy-to-production
+1. Full deploy flow (test, build, upload to R2, ship, run runtime + static)
+make fetch-images `or` make refresh-images
+AWS_ACCESS_KEY_ID=... AWS_SECRET_ACCESS_KEY=... make deploy-to-production \
+	R2_ENDPOINT_URL=https://ACCOUNT_ID.r2.cloudflarestorage.com \
+	R2_BUCKET=BUCKET_NAME
 
 2. Follow runtime logs
 make remote-logs

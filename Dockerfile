@@ -118,3 +118,10 @@ COPY nginx/images.conf /etc/nginx/conf.d/images.conf
 COPY --from=builder /app/ /usr/share/nginx/html/
 
 EXPOSE 8080
+
+# Stage 5: Upload the validated JPG files to an S3-compatible object store.
+FROM amazon/aws-cli:latest AS r2-uploader
+
+COPY --from=builder /app/ /images/
+
+ENTRYPOINT ["aws"]

@@ -7,6 +7,11 @@ RUNTIME_IMAGE_NAME ?= dog-ceo-api-rust:runtime
 RUNTIME_IMAGE_TAR ?= dog_ceo_api_rust_runtime.tar
 IMAGES_IMAGE_NAME ?= dog-ceo-static:images
 IMAGES_IMAGE_TAR ?= dog_ceo_static_images.tar
+R2_UPLOADER_IMAGE_NAME ?= dog-ceo-r2-uploader:latest
+R2_ENDPOINT_URL ?=
+R2_BUCKET ?=
+R2_PREFIX ?= breeds
+R2_DESTINATION = s3://$(R2_BUCKET)$(if $(strip $(R2_PREFIX)),/$(strip $(R2_PREFIX)))
 REMOTE_HOST ?= golf2deploy
 REMOTE_SSH_USER ?= deploy
 REMOTE_CONN ?= $(REMOTE_SSH_USER)@$(REMOTE_HOST)
@@ -25,7 +30,7 @@ TEMPIMAGES_DIR ?= tempimages
 IMAGES_REPO ?= https://github.com/jigsawpieces/dog-api-images.git
 
 .PHONY: help check test build build-release run run-prod parity parity-start clean \
-	fetch-images refresh-images require-images cleanup-images build-runtime-image build-static-image save-static-image save-runtime save-image \
+	fetch-images refresh-images require-images cleanup-images build-runtime-image build-static-image build-r2-uploader upload-r2 require-r2-config save-static-image save-runtime save-image \
 	send-image run-remote run-remote-static run-remote-images deploy-to-production delete-local-tars remote-logs remote-logs-static remote-logs-images \
 	deploy-to-host
 
@@ -45,6 +50,7 @@ help:
 	@echo "  make cleanup-images      - remove local $(TEMPIMAGES_DIR) clone"
 	@echo "  make build-runtime-image   - build runtime API image (linux/amd64, target=runtime)"
 	@echo "  make build-static-image    - build static files image (linux/amd64, target=images)"
+	@echo "  make upload-r2             - mirror processed JPG files to Cloudflare R2"
 	@echo "  make save-image            - save both runtime and images images to tar files"
 	@echo "  make send-image            - upload both image tar files to remote host"
 	@echo "  make run-remote            - run API containers bound to localhost for nginx proxy"
@@ -61,6 +67,9 @@ help:
 	@echo "  REMOTE_ENGINE=$(REMOTE_ENGINE)"
 	@echo "  REMOTE_TMPFS=$(REMOTE_TMPFS)"
 	@echo "  REMOTE_EXTRA_RUN_ARGS=$(REMOTE_EXTRA_RUN_ARGS)"
+	@echo "  R2_ENDPOINT_URL=$(R2_ENDPOINT_URL)"
+	@echo "  R2_BUCKET=$(R2_BUCKET)"
+	@echo "  R2_PREFIX=$(R2_PREFIX)"
 
 check:
 	$(CARGO) check
@@ -118,6 +127,32 @@ build-runtime-image: require-images
 build-static-image: require-images
 	docker build --platform $(REMOTE_PLATFORM) --target images -t $(IMAGES_IMAGE_NAME) .
 
+require-r2-config:
+	@test -n "$(R2_ENDPOINT_URL)" || { echo "missing R2_ENDPOINT_URL"; exit 1; }
+	@test -n "$(R2_BUCKET)" || { echo "missing R2_BUCKET"; exit 1; }
+	@test -n "$(R2_PREFIX)" || { echo "R2_PREFIX must be nonempty when mirroring with --delete"; exit 1; }
+	@test -n "$$AWS_ACCESS_KEY_ID" || { echo "missing AWS_ACCESS_KEY_ID"; exit 1; }
+	@test -n "$$AWS_SECRET_ACCESS_KEY" || { echo "missing AWS_SECRET_ACCESS_KEY"; exit 1; }
+
+build-r2-uploader: require-images
+	docker build --platform $(REMOTE_PLATFORM) --target r2-uploader -t $(R2_UPLOADER_IMAGE_NAME) .
+
+upload-r2: require-r2-config build-r2-uploader
+	docker run --rm --platform $(REMOTE_PLATFORM) \
+		-e AWS_ACCESS_KEY_ID \
+		-e AWS_SECRET_ACCESS_KEY \
+		-e AWS_SESSION_TOKEN \
+		-e AWS_DEFAULT_REGION=auto \
+		$(R2_UPLOADER_IMAGE_NAME) \
+		s3 sync /images/ "$(R2_DESTINATION)/" \
+		--endpoint-url "$(R2_ENDPOINT_URL)" \
+		--delete \
+		--exclude "*" \
+		--include "*.jpg" \
+		--content-type "image/jpeg" \
+		--cache-control "public, max-age=2592000, immutable" \
+		--only-show-errors
+
 save-runtime: build-runtime-image
 	docker save $(RUNTIME_IMAGE_NAME) -o $(RUNTIME_IMAGE_TAR)
 
@@ -159,7 +194,7 @@ run-remote-static:
 
 run-remote-images: run-remote-static
 
-deploy-to-production: test save-image send-image run-remote run-remote-static delete-local-tars
+deploy-to-production: test save-image upload-r2 send-image run-remote run-remote-static delete-local-tars
 
 remote-logs:
 	ssh $(REMOTE_CONN) "$(REMOTE_ENGINE) logs -f $(APP_BASENAME)_1"
