@@ -135,10 +135,10 @@ build-prepared-images: require-images
 push-prepared-images: require-images
 	docker buildx build --platform $(PREPARED_IMAGE_PLATFORMS) -f images/Dockerfile --push --provenance=false --sbom=false --output type=registry,name=$(PREPARED_IMAGES_IMAGE),oci-mediatypes=true,compression=zstd,compression-level=10,force-compression=true .
 
-build-runtime-image: require-images
+build-runtime-image:
 	docker build --platform $(REMOTE_PLATFORM) --build-arg PREPARED_IMAGES_IMAGE="$(PREPARED_IMAGES_IMAGE)" --build-arg RUST_TARGET_CPU="$(TARGET_CPU)" --target runtime -t $(RUNTIME_IMAGE_NAME) .
 
-build-static-image: require-images
+build-static-image:
 	docker build --platform $(REMOTE_PLATFORM) --build-arg PREPARED_IMAGES_IMAGE="$(PREPARED_IMAGES_IMAGE)" --target images -t $(IMAGES_IMAGE_NAME) .
 
 require-r2-config:
@@ -148,7 +148,7 @@ require-r2-config:
 	@test -n "$$AWS_ACCESS_KEY_ID" || { echo "missing AWS_ACCESS_KEY_ID"; exit 1; }
 	@test -n "$$AWS_SECRET_ACCESS_KEY" || { echo "missing AWS_SECRET_ACCESS_KEY"; exit 1; }
 
-build-r2-uploader: require-images
+build-r2-uploader:
 	docker build --platform $(LOCAL_PLATFORM) --build-arg PREPARED_IMAGES_IMAGE="$(PREPARED_IMAGES_IMAGE)" --target r2-uploader -t $(R2_UPLOADER_IMAGE_NAME) .
 
 upload-r2: require-r2-config build-r2-uploader
