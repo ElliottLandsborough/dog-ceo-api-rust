@@ -99,16 +99,16 @@ RUN find /images -type f -printf 'dog-api-images/%P\0' > /app/manifest.nul && \
   CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=rust-lld \
   RUSTFLAGS="-C target-cpu=${RUST_TARGET_CPU}" \
   cargo build --release --target x86_64-unknown-linux-musl && \
-  install -Dm755 /app/target/x86_64-unknown-linux-musl/release/dog-ceo-rust /usr/local/bin/dog-ceo-rust
+  install -Dm755 /app/target/x86_64-unknown-linux-musl/release/dog-ceo-api-rust /usr/local/bin/dog-ceo-api-rust
 
 # Stage 3: Minimal runtime image with only the static binary
 FROM scratch AS runtime
 
-COPY --from=rust-builder /usr/local/bin/dog-ceo-rust /usr/local/bin/dog-ceo-rust
+COPY --from=rust-builder /usr/local/bin/dog-ceo-api-rust /usr/local/bin/dog-ceo-api-rust
 
 EXPOSE 3000
 USER 65532:65532
-CMD ["/usr/local/bin/dog-ceo-rust"]
+CMD ["/usr/local/bin/dog-ceo-api-rust"]
 
 # Stage 4: Hardened static image host for JPG files only
 FROM nginxinc/nginx-unprivileged:stable-alpine AS images
