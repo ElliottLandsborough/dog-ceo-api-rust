@@ -91,7 +91,7 @@ WORKDIR /app
 COPY Cargo.toml Cargo.lock ./
 COPY src/ ./src/
 
-ARG RUST_TARGET_CPU="haswell"
+ARG RUST_TARGET_CPU=x86-64-v3
 
 # Embed the processed image inventory and build a static Linux x86_64 binary.
 RUN find /images -type f -printf 'dog-api-images/%P\0' > /app/manifest.nul && \

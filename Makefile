@@ -1,7 +1,7 @@
 SHELL := /bin/bash
 
 CARGO ?= $(HOME)/.cargo/bin/cargo
-TARGET_CPU ?= haswell
+TARGET_CPU ?= x86-64-v3
 
 RUNTIME_IMAGE_NAME ?= dog-ceo-api-rust:runtime
 RUNTIME_IMAGE_TAR ?= dog_ceo_api_rust_runtime.tar
