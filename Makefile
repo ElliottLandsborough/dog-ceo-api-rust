@@ -16,6 +16,7 @@ REMOTE_HOST ?= golf3deploy
 REMOTE_SSH_USER ?= deploy
 REMOTE_CONN ?= $(REMOTE_SSH_USER)@$(REMOTE_HOST)
 REMOTE_PLATFORM ?= linux/amd64
+LOCAL_PLATFORM ?= linux/arm64
 REMOTE_ENGINE ?= podman
 REMOTE_BASE_DIR ?= /home/$(REMOTE_SSH_USER)/dog-ceo-api-rust
 APP_BASENAME ?= dog_ceo_api_rust
@@ -65,6 +66,7 @@ help:
 	@echo "Remote deploy vars:"
 	@echo "  REMOTE_SSH_USER=$(REMOTE_SSH_USER)"
 	@echo "  REMOTE_ENGINE=$(REMOTE_ENGINE)"
+	@echo "  LOCAL_PLATFORM=$(LOCAL_PLATFORM)"
 	@echo "  REMOTE_TMPFS=$(REMOTE_TMPFS)"
 	@echo "  REMOTE_EXTRA_RUN_ARGS=$(REMOTE_EXTRA_RUN_ARGS)"
 	@echo "  R2_ENDPOINT_URL=$(R2_ENDPOINT_URL)"
@@ -135,10 +137,10 @@ require-r2-config:
 	@test -n "$$AWS_SECRET_ACCESS_KEY" || { echo "missing AWS_SECRET_ACCESS_KEY"; exit 1; }
 
 build-r2-uploader: require-images
-	docker build --platform $(REMOTE_PLATFORM) --target r2-uploader -t $(R2_UPLOADER_IMAGE_NAME) .
+	docker build --platform $(LOCAL_PLATFORM) --target r2-uploader -t $(R2_UPLOADER_IMAGE_NAME) .
 
 upload-r2: require-r2-config build-r2-uploader
-	docker run --rm --platform $(REMOTE_PLATFORM) \
+	docker run --rm --platform $(LOCAL_PLATFORM) \
 		-e AWS_ACCESS_KEY_ID \
 		-e AWS_SECRET_ACCESS_KEY \
 		-e AWS_SESSION_TOKEN \
