@@ -192,9 +192,13 @@ run-remote-static:
 	ssh $(REMOTE_CONN) 'set -euo pipefail; uid=$$(id -u); export XDG_RUNTIME_DIR="/run/user/$$uid"; export DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$$uid/bus"; mkdir -p ~/.config/systemd/user; $(REMOTE_ENGINE) generate systemd --name $(IMAGES_CONTAINER_NAME) --files --new; mv -f container-$(IMAGES_CONTAINER_NAME).service ~/.config/systemd/user/; systemctl --user daemon-reload; systemctl --user enable --now container-$(IMAGES_CONTAINER_NAME).service'
 	ssh $(REMOTE_CONN) "rm -f $(REMOTE_BASE_DIR)/$(IMAGES_IMAGE_TAR)"
 
+stop-remote-static:
+	ssh $(REMOTE_CONN) "systemctl --user stop container-$(IMAGES_CONTAINER_NAME).service || true"
+	ssh $(REMOTE_CONN) "$(REMOTE_ENGINE) rm -f $(IMAGES_CONTAINER_NAME) >/dev/null 2>&1 || true"
+
 run-remote-images: run-remote-static
 
-deploy-to-production: test save-image upload-r2 send-image run-remote run-remote-static delete-local-tars
+deploy-to-production: test save-image upload-r2 send-image run-remote delete-local-tars
 
 remote-logs:
 	ssh $(REMOTE_CONN) "$(REMOTE_ENGINE) logs -f $(APP_BASENAME)_1"
