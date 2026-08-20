@@ -9,6 +9,7 @@ IMAGES_IMAGE_NAME ?= dog-ceo-static:images
 IMAGES_IMAGE_TAR ?= dog_ceo_static_images.tar
 R2_UPLOADER_IMAGE_NAME ?= dog-ceo-r2-uploader:latest
 PREPARED_IMAGES_IMAGE ?= lhr.vultrcr.com/dogceo/dog-ceo-images-prep:latest
+PREPARED_IMAGE_PLATFORMS ?= linux/amd64,linux/arm64
 R2_ENDPOINT_URL ?=
 R2_BUCKET ?=
 R2_PREFIX ?= breeds
@@ -73,6 +74,7 @@ help:
 	@echo "  REMOTE_TMPFS=$(REMOTE_TMPFS)"
 	@echo "  REMOTE_EXTRA_RUN_ARGS=$(REMOTE_EXTRA_RUN_ARGS)"
 	@echo "  PREPARED_IMAGES_IMAGE=$(PREPARED_IMAGES_IMAGE)"
+	@echo "  PREPARED_IMAGE_PLATFORMS=$(PREPARED_IMAGE_PLATFORMS)"
 	@echo "  R2_ENDPOINT_URL=$(R2_ENDPOINT_URL)"
 	@echo "  R2_BUCKET=$(R2_BUCKET)"
 	@echo "  R2_PREFIX=$(R2_PREFIX)"
@@ -130,8 +132,8 @@ cleanup-images:
 build-prepared-images: require-images
 	docker build --platform $(LOCAL_PLATFORM) -f images/Dockerfile -t $(PREPARED_IMAGES_IMAGE) .
 
-push-prepared-images: build-prepared-images
-	docker push $(PREPARED_IMAGES_IMAGE)
+push-prepared-images: require-images
+	docker buildx build --platform $(PREPARED_IMAGE_PLATFORMS) -f images/Dockerfile --push --provenance=false --sbom=false --output type=registry,name=$(PREPARED_IMAGES_IMAGE),oci-mediatypes=true,compression=zstd,compression-level=10,force-compression=true .
 
 build-runtime-image: require-images
 	docker build --platform $(REMOTE_PLATFORM) --build-arg PREPARED_IMAGES_IMAGE="$(PREPARED_IMAGES_IMAGE)" --build-arg RUST_TARGET_CPU="$(TARGET_CPU)" --target runtime -t $(RUNTIME_IMAGE_NAME) .
