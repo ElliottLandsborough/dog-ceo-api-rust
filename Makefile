@@ -151,7 +151,7 @@ require-r2-config:
 build-r2-uploader:
 	docker build --platform $(LOCAL_PLATFORM) --build-arg PREPARED_IMAGES_IMAGE="$(PREPARED_IMAGES_IMAGE)" --target r2-uploader -t $(R2_UPLOADER_IMAGE_NAME) .
 
-upload-r2: require-r2-config build-r2-uploader
+deploy-to-r2: require-r2-config build-r2-uploader
 	docker run --rm --platform $(LOCAL_PLATFORM) \
 		-e AWS_ACCESS_KEY_ID \
 		-e AWS_SECRET_ACCESS_KEY \
@@ -167,18 +167,16 @@ upload-r2: require-r2-config build-r2-uploader
 		--cache-control "public, max-age=2592000, immutable" \
 		--only-show-errors
 
-save-runtime: build-runtime-image
+save-runtime-image: build-runtime-image
 	docker save $(RUNTIME_IMAGE_NAME) -o $(RUNTIME_IMAGE_TAR)
 
 save-static-image: build-static-image
 	docker save $(IMAGES_IMAGE_NAME) -o $(IMAGES_IMAGE_TAR)
 
-save-image: save-runtime save-static-image
-
 send-image:
 	ssh $(REMOTE_CONN) "mkdir -p $(REMOTE_BASE_DIR) && chmod 700 $(REMOTE_BASE_DIR)"
 	scp $(RUNTIME_IMAGE_TAR) $(REMOTE_CONN):$(REMOTE_BASE_DIR)/$(RUNTIME_IMAGE_TAR)
-	scp $(IMAGES_IMAGE_TAR) $(REMOTE_CONN):$(REMOTE_BASE_DIR)/$(IMAGES_IMAGE_TAR)
+#	scp $(IMAGES_IMAGE_TAR) $(REMOTE_CONN):$(REMOTE_BASE_DIR)/$(IMAGES_IMAGE_TAR)
 
 delete-local-tars:
 	rm -f $(RUNTIME_IMAGE_TAR) $(IMAGES_IMAGE_TAR)
@@ -212,7 +210,7 @@ stop-remote-static:
 
 run-remote-images: run-remote-static
 
-deploy-to-production: test save-image upload-r2 send-image run-remote delete-local-tars
+deploy-to-production: test save-runtime-image send-image run-remote delete-local-tars
 
 remote-logs:
 	ssh $(REMOTE_CONN) "$(REMOTE_ENGINE) logs -f $(APP_BASENAME)_1"
