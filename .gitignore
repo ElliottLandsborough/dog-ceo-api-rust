@@ -7,3 +7,4 @@ dog_ceo_api_rust_images.tar
 *.tar.gz
 .DS_Store
 *.pub
+run-secret.sh

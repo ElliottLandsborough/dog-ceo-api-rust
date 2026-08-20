@@ -20,6 +20,7 @@ manifest.nul
 README.md
 Makefile
 run-prod.sh
+run-secret.sh
 scripts
 
 # Never bypass scanning or file-type validation for image input.
