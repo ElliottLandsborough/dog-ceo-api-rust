@@ -12,8 +12,7 @@ use axum::{
 };
 use ahash::AHashMap;
 use rand::rngs::SmallRng;
-use rand::seq::SliceRandom;
-use rand::SeedableRng;
+use rand::seq::IndexedRandom;
 use serde::Serialize;
 use std::cell::RefCell;
 use std::borrow::Cow;
@@ -29,7 +28,7 @@ const MAX_BREED_SEGMENT_LEN: usize = 64;
 const MAX_COUNT_INPUT_LEN: usize = 32;
 
 thread_local! {
-    static FAST_RNG: RefCell<SmallRng> = RefCell::new(SmallRng::from_entropy());
+    static FAST_RNG: RefCell<SmallRng> = RefCell::new(rand::make_rng());
 }
 
 fn with_fast_rng<T>(f: impl FnOnce(&mut SmallRng) -> T) -> T {
@@ -145,7 +144,7 @@ async fn random_images(
         with_fast_rng(|rng| {
             state
                 .urls
-                .choose_multiple(rng, capped)
+                .sample(rng, capped)
                 .map(String::as_str)
                 .collect::<Vec<&str>>()
         })
@@ -202,7 +201,7 @@ async fn random_main_breeds(
         with_fast_rng(|rng| {
             state
                 .main_breeds
-                .choose_multiple(rng, capped)
+                .sample(rng, capped)
                 .map(String::as_str)
                 .collect::<Vec<&str>>()
         })
@@ -243,7 +242,7 @@ async fn random_all_breeds_count(
     let selected = with_fast_rng(|rng| {
         state
             .main_breeds
-            .choose_multiple(rng, capped)
+            .sample(rng, capped)
             .map(String::as_str)
             .collect::<Vec<&str>>()
     });
@@ -369,7 +368,7 @@ async fn random_breed_images_endpoint(
             } else {
                 with_fast_rng(|rng| {
                     images
-                        .choose_multiple(rng, capped)
+                        .sample(rng, capped)
                         .map(String::as_str)
                         .collect::<Vec<&str>>()
                 })
@@ -474,7 +473,7 @@ async fn random_sub_breeds_endpoint(
             } else {
                 with_fast_rng(|rng| {
                     sub_breeds
-                        .choose_multiple(rng, capped)
+                        .sample(rng, capped)
                         .map(String::as_str)
                         .collect::<Vec<&str>>()
                 })
@@ -593,7 +592,7 @@ async fn random_sub_breed_images_endpoint(
             } else {
                 with_fast_rng(|rng| {
                     images
-                        .choose_multiple(rng, capped)
+                        .sample(rng, capped)
                         .map(String::as_str)
                         .collect::<Vec<&str>>()
                 })
