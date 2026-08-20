@@ -8,6 +8,7 @@ RUNTIME_IMAGE_TAR ?= dog_ceo_api_rust_runtime.tar
 IMAGES_IMAGE_NAME ?= dog-ceo-static:images
 IMAGES_IMAGE_TAR ?= dog_ceo_static_images.tar
 R2_UPLOADER_IMAGE_NAME ?= dog-ceo-r2-uploader:latest
+PREPARED_IMAGES_IMAGE ?= lhr.vultrcr.com/dogceo/dog-ceo-images-prep:latest
 R2_ENDPOINT_URL ?=
 R2_BUCKET ?=
 R2_PREFIX ?= breeds
@@ -31,7 +32,7 @@ TEMPIMAGES_DIR ?= tempimages
 IMAGES_REPO ?= https://github.com/jigsawpieces/dog-api-images.git
 
 .PHONY: help check test build build-release run run-prod parity parity-start clean \
-	fetch-images refresh-images require-images cleanup-images build-runtime-image build-static-image build-r2-uploader upload-r2 require-r2-config save-static-image save-runtime save-image \
+	fetch-images refresh-images require-images cleanup-images build-prepared-images push-prepared-images build-runtime-image build-static-image build-r2-uploader upload-r2 require-r2-config save-static-image save-runtime save-image \
 	send-image run-remote run-remote-static run-remote-images deploy-to-production delete-local-tars remote-logs remote-logs-static remote-logs-images \
 	deploy-to-host
 
@@ -49,6 +50,8 @@ help:
 	@echo "  make fetch-images        - one-time clone of dog-api-images into $(TEMPIMAGES_DIR)"
 	@echo "  make refresh-images      - update existing $(TEMPIMAGES_DIR) with latest upstream"
 	@echo "  make cleanup-images      - remove local $(TEMPIMAGES_DIR) clone"
+	@echo "  make build-prepared-images - build processed-image artifact container from images/Dockerfile"
+	@echo "  make push-prepared-images  - push processed-image artifact container to registry"
 	@echo "  make build-runtime-image   - build runtime API image (linux/amd64, target=runtime)"
 	@echo "  make build-static-image    - build static files image (linux/amd64, target=images)"
 	@echo "  make upload-r2             - mirror processed JPG files to Cloudflare R2"
@@ -69,6 +72,7 @@ help:
 	@echo "  LOCAL_PLATFORM=$(LOCAL_PLATFORM)"
 	@echo "  REMOTE_TMPFS=$(REMOTE_TMPFS)"
 	@echo "  REMOTE_EXTRA_RUN_ARGS=$(REMOTE_EXTRA_RUN_ARGS)"
+	@echo "  PREPARED_IMAGES_IMAGE=$(PREPARED_IMAGES_IMAGE)"
 	@echo "  R2_ENDPOINT_URL=$(R2_ENDPOINT_URL)"
 	@echo "  R2_BUCKET=$(R2_BUCKET)"
 	@echo "  R2_PREFIX=$(R2_PREFIX)"
@@ -123,11 +127,17 @@ require-images:
 cleanup-images:
 	rm -rf $(TEMPIMAGES_DIR)
 
+build-prepared-images: require-images
+	docker build --platform $(LOCAL_PLATFORM) -f images/Dockerfile -t $(PREPARED_IMAGES_IMAGE) .
+
+push-prepared-images: build-prepared-images
+	docker push $(PREPARED_IMAGES_IMAGE)
+
 build-runtime-image: require-images
-	docker build --platform $(REMOTE_PLATFORM) --build-arg RUST_TARGET_CPU="$(TARGET_CPU)" --target runtime -t $(RUNTIME_IMAGE_NAME) .
+	docker build --platform $(REMOTE_PLATFORM) --build-arg PREPARED_IMAGES_IMAGE="$(PREPARED_IMAGES_IMAGE)" --build-arg RUST_TARGET_CPU="$(TARGET_CPU)" --target runtime -t $(RUNTIME_IMAGE_NAME) .
 
 build-static-image: require-images
-	docker build --platform $(REMOTE_PLATFORM) --target images -t $(IMAGES_IMAGE_NAME) .
+	docker build --platform $(REMOTE_PLATFORM) --build-arg PREPARED_IMAGES_IMAGE="$(PREPARED_IMAGES_IMAGE)" --target images -t $(IMAGES_IMAGE_NAME) .
 
 require-r2-config:
 	@test -n "$(R2_ENDPOINT_URL)" || { echo "missing R2_ENDPOINT_URL"; exit 1; }
@@ -137,7 +147,7 @@ require-r2-config:
 	@test -n "$$AWS_SECRET_ACCESS_KEY" || { echo "missing AWS_SECRET_ACCESS_KEY"; exit 1; }
 
 build-r2-uploader: require-images
-	docker build --platform $(LOCAL_PLATFORM) --target r2-uploader -t $(R2_UPLOADER_IMAGE_NAME) .
+	docker build --platform $(LOCAL_PLATFORM) --build-arg PREPARED_IMAGES_IMAGE="$(PREPARED_IMAGES_IMAGE)" --target r2-uploader -t $(R2_UPLOADER_IMAGE_NAME) .
 
 upload-r2: require-r2-config build-r2-uploader
 	docker run --rm --platform $(LOCAL_PLATFORM) \
