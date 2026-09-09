@@ -19,7 +19,6 @@ manifest.nul
 
 README.md
 Makefile
-run-prod.sh
 run-secret.sh
 scripts
 
