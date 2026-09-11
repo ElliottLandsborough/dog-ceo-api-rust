@@ -565,6 +565,12 @@ async fn random_sub_breed_image_endpoint(
     }
 }
 
+async fn random_corgi_pembroke_image_endpoint(
+    State(state): State<Arc<AppState>>,
+) -> Result<Response, (StatusCode, Json<NotFoundWithCodeResponse>)> {
+    random_breed_image_endpoint(Path(String::from("pembroke")), State(state)).await
+}
+
 async fn random_sub_breed_images_endpoint(
     Path((breed, sub_breed, count)): Path<(String, String, String)>,
     State(state): State<Arc<AppState>>,
@@ -1008,6 +1014,10 @@ async fn run_server() {
         .route(
             "/breed/{breed}/{sub_breed}/images/random",
             get(random_sub_breed_image_endpoint),
+        )
+        .route(
+            "/breed/corgi/pembroke/images/random",
+            get(random_corgi_pembroke_image_endpoint),
         )
         .route(
             "/breed/{breed}/{sub_breed}/images/random/{count}",
