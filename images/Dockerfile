@@ -1,4 +1,4 @@
-FROM ubuntu:latest AS prep-builder
+FROM --platform=$BUILDPLATFORM ubuntu:latest AS prep-builder
 
 ENV DEBIAN_FRONTEND=noninteractive
 
