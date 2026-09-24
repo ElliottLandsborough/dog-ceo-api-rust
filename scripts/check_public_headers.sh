@@ -48,7 +48,10 @@ for line in headers[1:]:
 required = {
     "access-control-allow-origin": "*",
 }
+if name == "json":
+  required["content-type"] = "application/json"
 if name == "image":
+  required["content-type"] = "image/jpeg"
   required["cross-origin-resource-policy"] = "cross-origin"
 
 failed = False
