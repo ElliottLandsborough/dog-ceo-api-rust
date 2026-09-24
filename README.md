@@ -13,6 +13,15 @@ make check
 make test
 ```
 
+The public API and image headers can be checked independently with:
+```bash
+make headers
+```
+
+This check runs automatically as the first step of `make deploy-to-production`
+and stops the deployment if the live endpoints do not return the required
+headers.
+
 2. Run the app locally (non-containerized).
 ```bash
 make run
@@ -60,6 +69,9 @@ make push-prepared-images
 ```bash
 make deploy-to-production
 ```
+
+Production deployment first verifies the live JSON and image response headers,
+then runs the Rust tests before building or replacing the production container.
 
 5. Check remote logs.
 ```bash

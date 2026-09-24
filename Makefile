@@ -32,7 +32,7 @@ REMOTE_EXTRA_RUN_ARGS ?=
 TEMPIMAGES_DIR ?= tempimages
 IMAGES_REPO ?= https://github.com/jigsawpieces/dog-api-images.git
 
-.PHONY: help check test build build-release run run-prod parity parity-start clean \
+.PHONY: help check test headers build build-release run run-prod parity parity-start clean \
 	fetch-images refresh-images require-images cleanup-images build-prepared-images push-prepared-images build-runtime-image build-static-image build-r2-uploader upload-r2 require-r2-config save-static-image save-runtime save-image \
 	send-image run-remote run-remote-static run-remote-images deploy-to-production delete-local-tars remote-logs remote-logs-static remote-logs-images \
 	deploy-to-host
@@ -41,6 +41,7 @@ help:
 	@echo "Available targets:"
 	@echo "  make check         - cargo check"
 	@echo "  make test          - cargo test"
+	@echo "  make headers       - verify public API and image response headers"
 	@echo "  make build         - cargo build"
 	@echo "  make build-release - cargo build --release"
 	@echo "  make run           - cargo run"
@@ -84,6 +85,9 @@ check:
 
 test:
 	$(CARGO) test
+
+headers:
+	./scripts/check_public_headers.sh
 
 build:
 	$(CARGO) build
@@ -210,7 +214,7 @@ stop-remote-static:
 
 run-remote-images: run-remote-static
 
-deploy-to-production: test save-runtime-image send-image run-remote delete-local-tars
+deploy-to-production: headers test save-runtime-image send-image run-remote delete-local-tars
 
 remote-logs:
 	ssh $(REMOTE_CONN) "$(REMOTE_ENGINE) logs -f $(APP_BASENAME)_1"
