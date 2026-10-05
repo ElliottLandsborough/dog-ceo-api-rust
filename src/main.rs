@@ -142,7 +142,7 @@ async fn random_image(
 
 async fn random_images(Path(count): Path<String>, State(state): State<Arc<AppState>>) -> Response {
     let count = parse_count_or_default_one(&count);
-    let capped = count.min(50).min(state.urls.len());
+    let capped = count.min(1_000).min(state.urls.len());
     let urls = if capped == 1 {
         pick_random_ref(&state.urls)
             .map(|s| vec![s.as_str()])
@@ -363,7 +363,7 @@ async fn random_breed_images_endpoint(
 
     match state.breed_images.get(breed.as_ref()) {
         Some(images) if !images.is_empty() => {
-            let capped = count.min(50).min(images.len());
+            let capped = count.min(1_000).min(images.len());
             let selected = if capped == 1 {
                 pick_random_ref(images)
                     .map(|&i| vec![state.urls[i].as_str()])
@@ -593,7 +593,7 @@ async fn random_sub_breed_images_endpoint(
 
     match maybe_images {
         Some(images) if !images.is_empty() => {
-            let capped = count.min(50).min(images.len());
+            let capped = count.min(1_000).min(images.len());
             let selected = if capped == 1 {
                 pick_random_ref(images)
                     .map(|&i| vec![state.urls[i].as_str()])
