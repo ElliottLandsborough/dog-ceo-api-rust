@@ -117,7 +117,11 @@ struct NotFoundWithCodeResponse {
 async fn random_image(
     State(state): State<Arc<AppState>>,
 ) -> Result<Response, (StatusCode, Json<RandomImageResponse>)> {
-    let selected = pick_random_ref(&state.urls).map(String::as_str);
+    let selected = pick_random_ref(&state.main_breeds)
+        .and_then(|breed| state.breed_images.get(breed))
+        .and_then(|images| pick_random_ref(images))
+        .and_then(|&image_id| state.urls.get(image_id))
+        .map(String::as_str);
 
     let Some(url) = selected else {
         return Err((
