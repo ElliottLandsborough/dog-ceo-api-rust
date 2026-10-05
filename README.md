@@ -1,5 +1,9 @@
 # dog-ceo-api-rust
 
+## Support
+
+[Buy me a dog treat](https://paypal.me/elliottlan)
+
 Run all commands from:
 `/Users/elliott/projects/dog-ceo-api-rust`
 
@@ -103,3 +107,5 @@ Default: `linux/amd64`
 
 4. `LOCAL_PLATFORM`
 Default: `linux/arm64`
+
+[![dog.ceo](https://badge.uptimerobot.com/psp/b32358a0a8b111f3e775ba869029db53.svg?style=logo&theme=dark)](https://stats.uptimerobot.com/70H4CPut5F?utm_source=status_badge&utm_medium=referral)
